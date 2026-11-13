@@ -19,7 +19,7 @@ const workspaceAiProviderModel = new AiProviderModel(serverDB, userId, workspace
 
 beforeEach(async () => {
   await serverDB.delete(users);
-  await serverDB.insert(users).values([{ id: userId }, { id: 'user2' }]);
+  await serverDB.insert(users).values([{ id: userId, role: 'admin' }, { id: 'user2' }]);
   await serverDB.insert(workspaces).values({
     id: workspaceId,
     name: 'Provider Test Workspace',

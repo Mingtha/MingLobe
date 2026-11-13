@@ -33,6 +33,7 @@ import {
   userSettings,
 } from '../schemas';
 import type { LobeChatDatabase } from '../type';
+import { omitSignupAllowlist } from '../utils/signupAllowlist';
 import { notTrashed } from '../utils/softDelete';
 import { hasLiveParentTopic } from '../utils/topicVisibility';
 import { AGENT_TRANSFER_PENDING_OWNER_DELETE, AgentTransferJobModel } from './agentTransferJob';
@@ -217,7 +218,7 @@ export class UserModel {
       isOnboarded: state.isOnboarded,
       lastName: state.lastName || undefined,
       onboarding: state.onboarding || undefined,
-      preference: state.preference as UserPreference,
+      preference: omitSignupAllowlist(state.preference) as UserPreference,
       settings,
       userId: this.userId,
       username: state.username || undefined,
@@ -244,7 +245,7 @@ export class UserModel {
       columns: { preference: true },
       where: eq(users.id, this.userId),
     });
-    return user?.preference as UserPreference | undefined;
+    return omitSignupAllowlist(user?.preference) as UserPreference | undefined;
   };
 
   getUserSettingsDefaultAgentConfig = async () => {

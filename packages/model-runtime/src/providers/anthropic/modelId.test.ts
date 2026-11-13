@@ -49,6 +49,19 @@ describe('parseClaudeModelId', () => {
     });
   });
 
+  it('should parse gateway-namespaced claude/ ids as native Claude ids', () => {
+    expect(parseClaudeModelId('claude/claude-opus-5-5')).toEqual({
+      family: 'opus',
+      majorVersion: 5,
+      minorSeparator: '-',
+      minorVersion: 5,
+      normalizedModelId: 'claude-opus-5-5',
+      source: 'anthropic',
+    });
+    expect(isAlwaysThinkingClaudeModel('claude/claude-sonnet-5-5')).toBe(true);
+    expect(supportsClaudeEffortLevel('claude/claude-haiku-5-5', 'max')).toBe(true);
+  });
+
   it('should parse Bedrock Claude ids with region prefixes', () => {
     expect(parseClaudeModelId('us.anthropic.claude-sonnet-4-5-20250929-v1:0')).toEqual({
       family: 'sonnet',

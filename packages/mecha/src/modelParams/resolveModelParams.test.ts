@@ -69,6 +69,13 @@ describe('resolveModelParams', () => {
       expect(fromCard.modelHasReasoningExtendParams).toBe(true);
     });
 
+    it('resolves a gateway-prefixed model id through its bare card', async () => {
+      const facts = await resolveModelParams(request({ model: 'codex/gpt-4' }), providers());
+      expect(facts.modelExtendParams).toEqual(['reasoningEffort']);
+      expect(facts.modelHasReasoningExtendParams).toBe(true);
+      expect(facts.capabilities.isCanUseVision('codex/gpt-4', 'openai')).toBe(true);
+    });
+
     it('falls back to the canonical card for an aggregation provider', async () => {
       const facts = await resolveModelParams(
         request({ provider: 'lobehub' }),

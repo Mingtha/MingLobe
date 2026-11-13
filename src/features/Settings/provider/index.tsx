@@ -4,9 +4,11 @@ import { Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 import { Outlet, useParams } from 'react-router';
 
+import { AdminOnly } from '@/features/AdminConfig';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 
 import DesktopLayoutContainer from './_layout/Desktop/Container';
+import ProviderListPageComponent from './(list)';
 import ProviderDetailPageComponent from './detail';
 import ProviderMenu from './ProviderMenu';
 
@@ -19,18 +21,20 @@ export const ProviderLayout = memo(() => {
   };
 
   return (
-    <Flexbox
-      horizontal
-      width={'100%'}
-      style={{
-        maxHeight: '100%',
-      }}
-    >
-      <ProviderMenu mobile={false} onProviderSelect={handleProviderSelect} />
-      <DesktopLayoutContainer>
-        <Outlet />
-      </DesktopLayoutContainer>
-    </Flexbox>
+    <AdminOnly>
+      <Flexbox
+        horizontal
+        width={'100%'}
+        style={{
+          maxHeight: '100%',
+        }}
+      >
+        <ProviderMenu mobile={false} onProviderSelect={handleProviderSelect} />
+        <DesktopLayoutContainer>
+          <Outlet />
+        </DesktopLayoutContainer>
+      </Flexbox>
+    </AdminOnly>
   );
 });
 
@@ -55,4 +59,13 @@ export const ProviderDetailPage = memo(() => {
 
 ProviderDetailPage.displayName = 'ProviderDetailPage';
 
-export { default } from './(list)';
+// The provider list also renders standalone through the settings tab map
+const ProviderListPage = memo((props: { mobile?: boolean }) => (
+  <AdminOnly>
+    <ProviderListPageComponent {...props} />
+  </AdminOnly>
+));
+
+ProviderListPage.displayName = 'ProviderListPage';
+
+export default ProviderListPage;

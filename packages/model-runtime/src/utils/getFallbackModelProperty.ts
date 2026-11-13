@@ -1,4 +1,5 @@
 import type { AiFullModelCard, AiModelType, LobeDefaultAiModelListItem } from 'model-bank';
+import { stripModelIdPrefix } from 'model-bank';
 
 import { EMBEDDING_MODEL_KEYWORDS } from './modelTypeKeywords';
 
@@ -36,20 +37,24 @@ export const getModelPropertyWithFallback = async <T>(
     models = await loadModels();
   }
 
-  // Step 1: If providerId is provided, prioritize an exact match (same provider + same id)
-  if (providerId) {
-    const exactMatch = models.find((m) => m.id === modelId && m.providerId === providerId);
+  // The exact id first, then the gateway-prefix-stripped id (`codex/gpt-6.1-sol` → `gpt-6.1-sol`)
+  const bareId = stripModelIdPrefix(modelId);
+  for (const id of bareId === modelId ? [modelId] : [modelId, bareId]) {
+    // Step 1: If providerId is provided, prioritize an exact match (same provider + same id)
+    if (providerId) {
+      const exactMatch = models.find((m) => m.id === id && m.providerId === providerId);
 
-    if (exactMatch && exactMatch[propertyName] !== undefined) {
-      return exactMatch[propertyName] as T;
+      if (exactMatch && exactMatch[propertyName] !== undefined) {
+        return exactMatch[propertyName] as T;
+      }
     }
-  }
 
-  // Step 2: Fallback to a match ignoring the provider (match id only)
-  const fallbackMatch = models.find((m) => m.id === modelId);
+    // Step 2: Fallback to a match ignoring the provider (match id only)
+    const fallbackMatch = models.find((m) => m.id === id);
 
-  if (fallbackMatch && fallbackMatch[propertyName] !== undefined) {
-    return fallbackMatch[propertyName] as T;
+    if (fallbackMatch && fallbackMatch[propertyName] !== undefined) {
+      return fallbackMatch[propertyName] as T;
+    }
   }
 
   // Step 3: Return a default value

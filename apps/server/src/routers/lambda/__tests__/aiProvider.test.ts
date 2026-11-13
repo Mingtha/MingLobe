@@ -26,6 +26,10 @@ vi.mock('@/database/repositories/aiInfra');
 vi.mock('@/database/models/aiModel');
 vi.mock('@/database/models/aiProvider');
 vi.mock('@/database/models/user');
+const mockIsProviderConfigAdmin = vi.hoisted(() => vi.fn(async () => true));
+vi.mock('@/database/utils/providerConfigOwner', () => ({
+  isProviderConfigAdmin: mockIsProviderConfigAdmin,
+}));
 vi.mock('@/server/modules/ModelRuntime', () => ({
   initModelRuntimeFromDB: vi.fn(),
 }));
@@ -525,6 +529,44 @@ describe('aiProviderRouter', () => {
       await caller.updateAiProviderOrder({ sortMap });
 
       expect(mockUpdateOrder).toHaveBeenCalledWith(sortMap);
+    });
+  });
+
+  // The provider config is site-wide: friends read it but never its keys or writes.
+  describe('non-admin accounts', () => {
+    beforeEach(() => {
+      mockIsProviderConfigAdmin.mockResolvedValueOnce(false);
+    });
+
+    it('rejects provider config writes', async () => {
+      const caller = aiProviderRouter.createCaller(createMockContext());
+
+      await expect(
+        caller.toggleProviderEnabled({ enabled: false, id: mockProviderId }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    });
+
+    it('reads provider details without decrypted keys', async () => {
+      vi.mocked(AiInfraRepos).prototype.getAiProviderDetail = vi
+        .fn()
+        .mockResolvedValue({ ...mockProviderDetail, keyVaults: { apiKey: 'sk-secret' } });
+
+      const caller = aiProviderRouter.createCaller(createMockContext());
+      const result = await caller.getAiProviderById({ id: mockProviderId });
+
+      expect(result?.keyVaults).toBeUndefined();
+    });
+
+    it('reads the runtime state without decrypted keys', async () => {
+      vi.mocked(AiInfraRepos).prototype.getAiProviderRuntimeState = vi.fn().mockResolvedValue({
+        ...mockRuntimeState,
+        runtimeConfig: { openai: { keyVaults: { apiKey: 'sk-secret' } } },
+      });
+
+      const caller = aiProviderRouter.createCaller(createMockContext());
+      const result = await caller.getAiProviderRuntimeState({});
+
+      expect(result.runtimeConfig.openai.keyVaults).toEqual({});
     });
   });
 });

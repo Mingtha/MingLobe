@@ -305,6 +305,29 @@ describe('ApiKeyModel', () => {
       });
     });
 
+    // Every API key auth path resolves through the static lookup; a disabled member's key must not
+    it('resolves no key for a banned user until the ban expires', async () => {
+      const validKey = `${API_KEY_PREFIX}fedcba9876543210`;
+      await serverDB.insert(apiKeys).values({
+        enabled: true,
+        key: validKey,
+        keyHash: hashApiKey(validKey),
+        name: 'Banned',
+        userId,
+      });
+
+      await serverDB.update(users).set({ banned: true }).where(eq(users.id, userId));
+      await expect(ApiKeyModel.findByKey(serverDB, validKey)).resolves.toBeFalsy();
+
+      await serverDB
+        .update(users)
+        .set({ banExpires: new Date(Date.now() - 1000) })
+        .where(eq(users.id, userId));
+      await expect(ApiKeyModel.findByKey(serverDB, validKey)).resolves.toMatchObject({
+        name: 'Banned',
+      });
+    });
+
     it('should return null for invalid key format', async () => {
       const found = await apiKeyModel.findByKey('invalid-key-format');
 

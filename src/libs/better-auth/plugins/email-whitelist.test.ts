@@ -1,120 +1,44 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Get mocked module
-import { authEnv } from '@/envs/auth';
+import type * as SignupAllowlistModule from '@/database/utils/signupAllowlist';
+import { getSignupAllowlist } from '@/database/utils/signupAllowlist';
 
-import { isEmailAllowed } from './email-whitelist';
+import { emailWhitelist } from './email-whitelist';
 
-// Mock authEnv
-vi.mock('@/envs/auth', () => ({
-  authEnv: {
-    AUTH_ALLOWED_EMAILS: undefined as string | undefined,
-  },
+vi.mock('@lobechat/database', () => ({ serverDB: {} }));
+vi.mock('@/envs/auth', () => ({ authEnv: { ADMIN_EMAIL: 'Admin@Example.com' } }));
+vi.mock('@/database/utils/signupAllowlist', async (importOriginal) => ({
+  ...(await importOriginal<typeof SignupAllowlistModule>()),
+  getSignupAllowlist: vi.fn(),
 }));
 
-describe('isEmailAllowed', () => {
+const beforeCreate = (emailWhitelist().init as any)().options.databaseHooks.user.create.before as (
+  user: Record<string, unknown>,
+) => Promise<{ data: Record<string, unknown> }>;
+
+describe('emailWhitelist', () => {
   beforeEach(() => {
-    // Reset to undefined before each test
-    (authEnv as { AUTH_ALLOWED_EMAILS: string | undefined }).AUTH_ALLOWED_EMAILS = undefined;
+    vi.mocked(getSignupAllowlist).mockResolvedValue([]);
   });
 
-  describe('when whitelist is empty', () => {
-    it('should allow all emails when AUTH_ALLOWED_EMAILS is undefined', () => {
-      expect(isEmailAllowed('anyone@example.com')).toBe(true);
-    });
+  it('creates the ADMIN_EMAIL account as admin, whatever the allowlist', async () => {
+    const result = await beforeCreate({ email: 'admin@example.com' });
 
-    it('should allow all emails when AUTH_ALLOWED_EMAILS is empty string', () => {
-      (authEnv as { AUTH_ALLOWED_EMAILS: string | undefined }).AUTH_ALLOWED_EMAILS = '';
-      expect(isEmailAllowed('anyone@example.com')).toBe(true);
-    });
+    expect(result.data.role).toBe('admin');
+    expect(getSignupAllowlist).not.toHaveBeenCalled();
   });
 
-  describe('domain matching', () => {
-    beforeEach(() => {
-      (authEnv as { AUTH_ALLOWED_EMAILS: string | undefined }).AUTH_ALLOWED_EMAILS =
-        'example.com,company.org';
-    });
-
-    it('should allow email from whitelisted domain', () => {
-      expect(isEmailAllowed('user@example.com')).toBe(true);
-      expect(isEmailAllowed('admin@company.org')).toBe(true);
-    });
-
-    it('should reject email from non-whitelisted domain', () => {
-      expect(isEmailAllowed('user@other.com')).toBe(false);
-    });
-
-    it('should be case-sensitive for domain', () => {
-      expect(isEmailAllowed('user@Example.com')).toBe(false);
-      expect(isEmailAllowed('user@EXAMPLE.COM')).toBe(false);
+  it('rejects everyone else while the allowlist is empty', async () => {
+    await expect(beforeCreate({ email: 'friend@example.com' })).rejects.toMatchObject({
+      body: { code: 'EMAIL_NOT_ALLOWED' },
     });
   });
 
-  describe('exact email matching', () => {
-    beforeEach(() => {
-      (authEnv as { AUTH_ALLOWED_EMAILS: string | undefined }).AUTH_ALLOWED_EMAILS =
-        'admin@special.com,vip@other.com';
-    });
+  it('admits listed emails and domains as plain users', async () => {
+    vi.mocked(getSignupAllowlist).mockResolvedValue(['friend@example.com', 'team.org']);
 
-    it('should allow exact email match', () => {
-      expect(isEmailAllowed('admin@special.com')).toBe(true);
-      expect(isEmailAllowed('vip@other.com')).toBe(true);
-    });
-
-    it('should reject different email at same domain', () => {
-      expect(isEmailAllowed('user@special.com')).toBe(false);
-    });
-
-    it('should be case-sensitive for email', () => {
-      expect(isEmailAllowed('Admin@special.com')).toBe(false);
-    });
-  });
-
-  describe('mixed domain and email matching', () => {
-    beforeEach(() => {
-      (authEnv as { AUTH_ALLOWED_EMAILS: string | undefined }).AUTH_ALLOWED_EMAILS =
-        'example.com,admin@other.com';
-    });
-
-    it('should allow any email from whitelisted domain', () => {
-      expect(isEmailAllowed('anyone@example.com')).toBe(true);
-    });
-
-    it('should allow specific whitelisted email', () => {
-      expect(isEmailAllowed('admin@other.com')).toBe(true);
-    });
-
-    it('should reject non-whitelisted email from non-whitelisted domain', () => {
-      expect(isEmailAllowed('user@other.com')).toBe(false);
-    });
-  });
-
-  describe('whitespace handling', () => {
-    it('should trim whitespace from whitelist entries', () => {
-      (authEnv as { AUTH_ALLOWED_EMAILS: string | undefined }).AUTH_ALLOWED_EMAILS =
-        ' example.com , admin@other.com ';
-      expect(isEmailAllowed('user@example.com')).toBe(true);
-      expect(isEmailAllowed('admin@other.com')).toBe(true);
-    });
-
-    it('should filter empty entries', () => {
-      (authEnv as { AUTH_ALLOWED_EMAILS: string | undefined }).AUTH_ALLOWED_EMAILS =
-        'example.com,,other.com';
-      expect(isEmailAllowed('user@example.com')).toBe(true);
-      expect(isEmailAllowed('user@other.com')).toBe(true);
-    });
-  });
-
-  describe('edge cases', () => {
-    it('should reject malformed email without @', () => {
-      (authEnv as { AUTH_ALLOWED_EMAILS: string | undefined }).AUTH_ALLOWED_EMAILS = 'example.com';
-      expect(isEmailAllowed('invalid-email')).toBe(false);
-    });
-
-    it('should handle email with multiple @ symbols', () => {
-      (authEnv as { AUTH_ALLOWED_EMAILS: string | undefined }).AUTH_ALLOWED_EMAILS = 'example.com';
-      // split('@')[1] returns 'middle@example.com', which won't match 'example.com'
-      expect(isEmailAllowed('user@middle@example.com')).toBe(false);
-    });
+    expect((await beforeCreate({ email: 'Friend@Example.com' })).data.role).toBe('user');
+    expect((await beforeCreate({ email: 'a@team.org' })).data.role).toBe('user');
+    await expect(beforeCreate({ email: 'a@sub.team.org' })).rejects.toBeDefined();
   });
 });

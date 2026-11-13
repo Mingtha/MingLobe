@@ -5,9 +5,10 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace NodeJS {
     interface ProcessEnv {
+      /** The admin account: owns the site-wide AI provider config and the sign-up allowlist. */
+      ADMIN_EMAIL?: string;
       /** Comma-separated origins merged into Better Auth's resolved trusted origins. */
       AUTH_ADDITIONAL_TRUSTED_ORIGINS?: string;
-      AUTH_ALLOWED_EMAILS?: string;
       AUTH_APPLE_APP_BUNDLE_IDENTIFIER?: string;
       AUTH_APPLE_CLIENT_ID?: string;
       AUTH_APPLE_CLIENT_SECRET?: string;
@@ -120,7 +121,7 @@ export const getAuthConfig = () => {
       AUTH_TRUSTED_ORIGINS: z.string().optional(),
       AUTH_EMAIL_VERIFICATION: z.boolean().optional().default(false),
       AUTH_ENABLE_MAGIC_LINK: z.boolean().optional().default(false),
-      AUTH_ALLOWED_EMAILS: z.string().optional(),
+      ADMIN_EMAIL: z.string().optional(),
       AUTH_DISABLE_EMAIL_PASSWORD: z.boolean().optional().default(false),
 
       AUTH_GOOGLE_ID: z.string().optional(),
@@ -212,7 +213,7 @@ export const getAuthConfig = () => {
       AUTH_SECRET: process.env.AUTH_SECRET,
       AUTH_SSO_PROVIDERS: process.env.AUTH_SSO_PROVIDERS,
       AUTH_TRUSTED_ORIGINS: process.env.AUTH_TRUSTED_ORIGINS,
-      AUTH_ALLOWED_EMAILS: process.env.AUTH_ALLOWED_EMAILS,
+      ADMIN_EMAIL: process.env.ADMIN_EMAIL,
       AUTH_DISABLE_EMAIL_PASSWORD: process.env.AUTH_DISABLE_EMAIL_PASSWORD === '1',
 
       // Cognito provider specific env vars

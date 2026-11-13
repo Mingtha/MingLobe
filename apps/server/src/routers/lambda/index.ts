@@ -24,6 +24,7 @@ import { publicProcedure, router } from '@/libs/trpc/lambda';
 
 import { acceptanceRouter } from './acceptance';
 import { acceptanceCommentRouter } from './acceptanceComment';
+import { adminConfigRouter } from './adminConfig';
 import { agentRouter } from './agent';
 import { agentAccountRouter } from './agentAccount';
 import { agentBotProviderRouter } from './agentBotProvider';
@@ -155,6 +156,7 @@ export const lambdaRouter = router({
   brief: briefRouter,
   aiAgent: aiAgentRouter,
   aiChat: aiChatRouter,
+  adminConfig: adminConfigRouter,
   aiModel: aiModelRouter,
   agentQuota: agentQuotaRouter,
   agentShare: agentShareRouter,

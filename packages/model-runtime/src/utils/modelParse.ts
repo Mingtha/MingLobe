@@ -8,6 +8,7 @@ import type {
   LobeDefaultAiModelListItem,
 } from 'model-bank';
 import { AiModelTypeSchema, ModelProvider } from 'model-bank';
+import { stripModelIdPrefix } from 'model-bank/modelIdMatch';
 
 import type { ModelProviderKey } from '../types';
 import { EMBEDDING_MODEL_KEYWORDS } from './modelTypeKeywords';
@@ -319,6 +320,22 @@ const findKnownModelByProvider = async (
     // If import fails (file doesn't exist or other error), return null
     return null;
   }
+};
+
+/** Bank card for a fetched model: provider list, then all models, retried without the gateway prefix (`codex/gpt-6.1-sol`). */
+const findKnownModel = async (
+  modelId: string,
+  provider: ModelProviderKey | keyof typeof MODEL_LIST_CONFIGS | undefined,
+  builtinModels: { id: string }[],
+): Promise<any> => {
+  for (const id of new Set([modelId, stripModelIdPrefix(modelId)])) {
+    const known =
+      (provider ? await findKnownModelByProvider(id, provider) : null) ??
+      builtinModels.find((m) => m.id.toLowerCase() === id.toLowerCase());
+    if (known) return known;
+  }
+
+  return null;
 };
 
 /**
@@ -693,17 +710,7 @@ export const processModelList = async (
         return undefined;
       }
 
-      let knownModel: any = null;
-
-      // If provider is provided, prioritize using provider-specific configuration
-      if (provider) {
-        knownModel = await findKnownModelByProvider(model.id, provider);
-      }
-
-      // If not found, fall back to global configuration
-      if (!knownModel) {
-        knownModel = builtinModels.find((m) => model.id.toLowerCase() === m.id.toLowerCase());
-      }
+      const knownModel = await findKnownModel(model.id, provider, builtinModels);
 
       const processedModel = processModelCard(model, config, knownModel);
 
@@ -749,13 +756,7 @@ export const processMultiProviderModelList = async (
       const detectedProvider = detectModelProvider(model.id);
       const config = MODEL_LIST_CONFIGS[detectedProvider];
 
-      // Prioritize using provider-specific configuration
-      let knownModel = await findKnownModelByProvider(model.id, detectedProvider);
-
-      // If not found, fall back to global configuration
-      if (!knownModel) {
-        knownModel = builtinModels.find((m) => model.id.toLowerCase() === m.id.toLowerCase());
-      }
+      const knownModel = await findKnownModel(model.id, detectedProvider, builtinModels);
 
       const includeKnownExtendParams =
         providerid === 'aihubmix' ||

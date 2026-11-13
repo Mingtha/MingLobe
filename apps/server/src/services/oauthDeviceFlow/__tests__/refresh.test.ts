@@ -4,17 +4,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ensureFreshOAuthToken } from '../refresh';
 
-const { mockGetAiProviderById, mockUpdateConfig } = vi.hoisted(() => ({
+const { mockGetAiProviderById, mockModelOwner, mockUpdateConfig } = vi.hoisted(() => ({
   mockGetAiProviderById: vi.fn(),
+  mockModelOwner: vi.fn(),
   mockUpdateConfig: vi.fn(),
 }));
 
 vi.mock('@/database/models/aiProvider', () => ({
   // class-based mock so it survives vi.clearAllMocks/resetAllMocks
   AiProviderModel: class {
+    constructor(_db: unknown, userId: string) {
+      mockModelOwner(userId);
+    }
     getAiProviderById = mockGetAiProviderById;
     updateConfig = mockUpdateConfig;
   },
+}));
+
+vi.mock('@/database/utils/providerConfigOwner', () => ({
+  getProviderConfigOwnerId: () => Promise.resolve('admin'),
 }));
 
 vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({
@@ -121,7 +129,8 @@ describe('ensureFreshOAuthToken', () => {
     expect(init.body).toContain('grant_type=refresh_token');
     expect(init.body).toContain('refresh_token=old-refresh');
 
-    // rotated pair persisted before returning
+    // rotated pair persisted before returning, to the admin-owned site-wide config
+    expect(mockModelOwner).toHaveBeenLastCalledWith('admin');
     expect(mockUpdateConfig).toHaveBeenCalledWith(
       'supergrok',
       expect.objectContaining({
@@ -218,10 +227,11 @@ describe('ensureFreshOAuthToken', () => {
       oauthTokenExpiresAt: String(Date.now() - 1000),
     });
 
+    // Another account shares the admin-owned token pair, so its refresh joins the same flight
     const [a, b, c] = await Promise.all([
       ensureFreshOAuthToken(params),
       ensureFreshOAuthToken(params),
-      ensureFreshOAuthToken(params),
+      ensureFreshOAuthToken({ ...params, userId: 'another-user' }),
     ]);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);

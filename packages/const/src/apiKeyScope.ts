@@ -214,6 +214,8 @@ export const TRPC_NAMESPACE_API_KEY_RULES: Record<string, TrpcNamespaceScopeRule
   agentTrace: 'blocked',
   aiAgent: rw('agent:read', 'agent:write'),
   aiChat: { any: 'model:invoke' },
+  // the admin's sign-up allowlist: member management stays with the signed-in admin
+  adminConfig: 'blocked',
   aiModel: rw('model:read', 'model:write'),
   aiProvider: rw('model:read', 'model:write'),
   // keys must not mint or manage keys

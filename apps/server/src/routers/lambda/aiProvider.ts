@@ -24,6 +24,7 @@ import { getServerGlobalConfig } from '@/server/globalConfig';
 import { initModelRuntimeForRequest } from '@/server/modules/AgentRuntime/llmRelay/oneShot';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { getUserScopedAiProviderRuntimeState } from '@/server/services/aiProviderAccess';
+import { resolveProviderConfigAccess } from '@/server/services/providerConfigAdmin';
 import { type AiProviderDetailItem, type AiProviderRuntimeState } from '@/types/aiProvider';
 import {
   CreateAiProviderSchema,
@@ -34,6 +35,7 @@ import { type ProviderConfig } from '@/types/user/settings';
 
 const aiProviderProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
+  const { isProviderAdmin } = await resolveProviderConfigAccess(ctx.serverDB, ctx.userId, opts);
 
   const { aiProvider } = await getServerGlobalConfig();
 
@@ -49,6 +51,10 @@ const aiProviderProcedure = wsCompatProcedure.use(serverDatabase).use(async (opt
       aiModelModel: new AiModelModel(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined),
       aiProviderModel: new AiProviderModel(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined),
       gateKeeper,
+      // Non-admins read the admin's provider config but never its decrypted keys
+      hideProviderKeys:
+        !isProviderAdmin ||
+        (ctx.apiKeyScopes !== undefined && !isFullAccessApiKey(ctx.apiKeyScopes)),
       userModel: new UserModel(ctx.serverDB, ctx.userId),
     },
   });
@@ -171,7 +177,7 @@ export const aiProviderRouter = router({
       );
 
       // restricted API keys must not exfiltrate decrypted provider credentials
-      if (detail && ctx.apiKeyScopes !== undefined && !isFullAccessApiKey(ctx.apiKeyScopes)) {
+      if (detail && ctx.hideProviderKeys) {
         return { ...detail, keyVaults: undefined };
       }
 
@@ -197,7 +203,7 @@ export const aiProviderRouter = router({
       const providerBindingAgentTypes = resolveProviderBindingAgentTypes(state);
 
       // restricted API keys must not exfiltrate decrypted provider credentials
-      if (ctx.apiKeyScopes !== undefined && !isFullAccessApiKey(ctx.apiKeyScopes)) {
+      if (ctx.hideProviderKeys) {
         return {
           ...state,
           providerBindingAgentTypes,
@@ -248,7 +254,7 @@ export const aiProviderRouter = router({
           }),
         );
 
-      if (ctx.apiKeyScopes !== undefined && !isFullAccessApiKey(ctx.apiKeyScopes)) {
+      if (ctx.hideProviderKeys) {
         return {
           enabled,
           enabledModels,

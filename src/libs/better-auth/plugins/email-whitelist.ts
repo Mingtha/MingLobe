@@ -1,40 +1,17 @@
+import { serverDB } from '@lobechat/database';
 import { APIError } from 'better-auth/api';
 import { type BetterAuthPlugin } from 'better-auth/types';
 
+import { getSignupAllowlist, isSignupAllowed } from '@/database/utils/signupAllowlist';
 import { authEnv } from '@/envs/auth';
 
-/**
- * Parse comma-separated email whitelist string into array.
- */
-function parseAllowedEmails(value: string | undefined): string[] {
-  if (!value) return [];
-  return value
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+const isAdminEmail = (email: string) =>
+  !!authEnv.ADMIN_EMAIL && email.trim().toLowerCase() === authEnv.ADMIN_EMAIL.trim().toLowerCase();
 
 /**
- * Check if email is allowed based on whitelist.
- * Supports full email (user@example.com) or domain (example.com).
- */
-export function isEmailAllowed(email: string): boolean {
-  const allowedList = parseAllowedEmails(authEnv.AUTH_ALLOWED_EMAILS);
-  if (allowedList.length === 0) return true;
-
-  const domain = email.split('@')[1];
-
-  return allowedList.some((item) => {
-    // Full email match
-    if (item.includes('@')) return item === email;
-    // Domain match
-    return item === domain;
-  });
-}
-
-/**
- * Better Auth plugin to restrict registration to whitelisted emails/domains.
- * Intercepts user creation (both email signup and SSO) via databaseHooks.
+ * Restrict registration (email sign-up and SSO alike) to the admin-managed
+ * allowlist, and make the `ADMIN_EMAIL` account the admin as it is created.
+ * Startup re-syncs the role, so a later change of `ADMIN_EMAIL` still applies.
  */
 export const emailWhitelist = (): BetterAuthPlugin => ({
   id: 'email-whitelist',
@@ -47,14 +24,17 @@ export const emailWhitelist = (): BetterAuthPlugin => ({
               before: async (user) => {
                 if (!user.email) return { data: user };
 
-                if (!isEmailAllowed(user.email)) {
+                if (isAdminEmail(user.email)) return { data: { ...user, role: 'admin' } };
+
+                const allowlist = await getSignupAllowlist(serverDB);
+                if (!isSignupAllowed(user.email, authEnv.ADMIN_EMAIL, allowlist)) {
                   throw new APIError('FORBIDDEN', {
                     code: 'EMAIL_NOT_ALLOWED',
                     message: 'EMAIL_NOT_ALLOWED',
                   });
                 }
 
-                return { data: user };
+                return { data: { ...user, role: 'user' } };
               },
             },
           },

@@ -46,8 +46,9 @@ export const genServerAiProvidersConfig = async (
         );
 
       const providerConfig = specificConfig[provider as keyof typeof specificConfig] || {};
+      // Fork: no builtin catalog by default; the admin adds models via "Fetch models"
       const modelString =
-        process.env[providerConfig.modelListKey ?? `${providerUpperCase}_MODEL_LIST`];
+        process.env[providerConfig.modelListKey ?? `${providerUpperCase}_MODEL_LIST`] || '-all';
 
       // Process extractEnabledModels and transformToAiModelList concurrently
       const [enabledModels, serverModelLists] = await Promise.all([

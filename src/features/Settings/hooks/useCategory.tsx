@@ -31,11 +31,13 @@ import {
   TagIcon,
   TerminalSquare,
   Trash2,
+  UsersIcon,
   Wrench,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useIsAdmin } from '@/features/AdminConfig';
 import { useElectronStore } from '@/store/electron';
 import { electronSyncSelectors } from '@/store/electron/selectors';
 import { SettingsTabs } from '@/store/global/initialState';
@@ -79,6 +81,7 @@ export const useCategory = () => {
   const { t: tSubscription } = useTranslation('subscription');
   const mobile = useServerConfigStore((s) => s.isMobile);
   const { hideDocs, showApiKeyManage, showProvider } = useServerConfigStore(featureFlagsSelectors);
+  const isAdmin = useIsAdmin();
   const [avatar, username] = useUserStore((s) => [
     userProfileSelectors.userAvatar(s),
     userProfileSelectors.nickName(s),
@@ -263,6 +266,11 @@ export const useCategory = () => {
     // System & developer group — low-frequency, so the sidebar starts it
     // collapsed. API Key has a single home whichever flag turned it on.
     const systemItems: CategoryItem[] = [
+      isAdmin && {
+        icon: UsersIcon,
+        key: SettingsTabs.Members,
+        label: t('tab.members'),
+      },
       {
         icon: Database,
         key: SettingsTabs.Storage,
@@ -317,6 +325,7 @@ export const useCategory = () => {
     mobile,
     showApiKeyManage,
     showProvider,
+    isAdmin,
     isDevMode,
     enableOAuthApps,
     avatarUrl,

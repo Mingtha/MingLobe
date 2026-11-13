@@ -22,7 +22,8 @@ vi.mock('@/envs/llm', () => ({
 
 vi.mock('@/utils/server/parseModels', () => ({
   extractEnabledModels: vi.fn(async (providerId: string, modelString?: string) => {
-    if (!modelString) return undefined;
+    // Like the real parser: `-all` alone adds nothing
+    if (!modelString || modelString === '-all') return undefined;
     return [`${providerId}-model-1`, `${providerId}-model-2`];
   }),
   transformToAiModelList: vi.fn(async (params) => {

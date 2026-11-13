@@ -27,6 +27,7 @@ import {
 import type { BuiltinToolResolveContext, FrozenCredentialFacts } from '@lobechat/types';
 import { getActivePluginIds } from '@lobechat/types';
 import debug from 'debug';
+import { findModelCard } from 'model-bank';
 
 import { loadModels } from '@/business/client/model-bank/loadModels';
 import { type ExecutionPlan, executionPlanToManifestExecutionEnv } from '@/helpers/executionTarget';
@@ -384,9 +385,7 @@ export const discoverTools = async (
     };
 
     // Dynamically inject turn-scoped builtin tools.
-    const modelAbilities =
-      builtinModels.find((item) => item.id === model && item.providerId === provider)?.abilities ??
-      builtinModels.find((item) => item.id === model)?.abilities;
+    const modelAbilities = findModelCard(builtinModels, model, provider)?.abilities;
     agentPlugins = [
       ...new Set([
         ...agentPlugins,

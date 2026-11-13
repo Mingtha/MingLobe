@@ -16,7 +16,7 @@ const aiProviderModel = new AiModelModel(serverDB, userId);
 
 beforeEach(async () => {
   await serverDB.delete(users).where(eq(users.id, userId));
-  await serverDB.insert(users).values({ id: userId });
+  await serverDB.insert(users).values({ id: userId, role: 'admin' });
 });
 
 afterEach(async () => {

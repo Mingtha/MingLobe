@@ -13,9 +13,11 @@ import {
   getOAuthService,
   GithubCopilotOAuthService,
 } from '@/server/services/oauthDeviceFlow/providers/githubCopilot';
+import { resolveProviderConfigAccess } from '@/server/services/providerConfigAdmin';
 
 const oauthProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
+  await resolveProviderConfigAccess(ctx.serverDB, ctx.userId, opts);
   const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
 
   return opts.next({

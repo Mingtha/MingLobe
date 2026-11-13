@@ -6,6 +6,7 @@ import { zValidator } from '../common/validator';
 import { ProviderController } from '../controllers/provider.controller';
 import { requireAuth } from '../middleware/auth';
 import { requireAnyPermission } from '../middleware/permission-check';
+import { requireProviderConfigAdmin } from '../middleware/provider-config-admin';
 import {
   CreateProviderRequestSchema,
   ProviderIdParamSchema,
@@ -46,6 +47,7 @@ ProviderRoutes.get(
 ProviderRoutes.post(
   '/',
   requireAuth,
+  requireProviderConfigAdmin,
   requireAnyPermission(
     getAllScopePermissions('AI_PROVIDER_CREATE'),
     'You do not have permission to create a provider',
@@ -60,6 +62,7 @@ ProviderRoutes.post(
 ProviderRoutes.patch(
   '/:id',
   requireAuth,
+  requireProviderConfigAdmin,
   requireAnyPermission(
     getAllScopePermissions('AI_PROVIDER_UPDATE'),
     'You do not have permission to update a provider',
@@ -75,6 +78,7 @@ ProviderRoutes.patch(
 ProviderRoutes.delete(
   '/:id',
   requireAuth,
+  requireProviderConfigAdmin,
   requireAnyPermission(
     getAllScopePermissions('AI_PROVIDER_DELETE'),
     'You do not have permission to delete a provider',

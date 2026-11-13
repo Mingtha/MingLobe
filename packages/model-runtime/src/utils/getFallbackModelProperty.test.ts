@@ -139,6 +139,15 @@ describe('getModelPropertyWithFallback', () => {
       expect(result).toBe('GPT-4'); // Falls back to openai provider
     });
 
+    it('should resolve a gateway-prefixed id through the bare id', async () => {
+      expect(await getModelPropertyWithFallback('codex/gpt-4', 'abilities', 'azure')).toEqual({
+        functionCall: true,
+      });
+      expect(await getModelPropertyWithFallback('codex/gpt-4', 'displayName', 'openai')).toBe(
+        'GPT-4',
+      );
+    });
+
     it('should return nested property like abilities', async () => {
       const result = await getModelPropertyWithFallback('gpt-4', 'abilities', 'openai');
       expect(result).toEqual({
