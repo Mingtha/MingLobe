@@ -14,6 +14,7 @@ import {
   type AiModelReasoningConfig,
   type ExtendParamsType,
   MODEL_REASONING_EXTEND_PARAMS,
+  stripModelIdPrefix,
 } from 'model-bank';
 import { ModelProvider } from 'model-bank/modelProvider';
 
@@ -46,6 +47,14 @@ const attempt = async <T>(
 const matchesModel = (card: ModelCardFacts, model: string) =>
   card.id === model || card.deploymentName === model;
 
+/** The provider's card for `model`, retried with the gateway prefix stripped (`codex/gpt-6.1-sol`). */
+const findProviderCard = (cards: ModelCardFacts[], model: string, provider: string) => {
+  const find = (target: string) =>
+    cards.find((card) => card.providerId === provider && matchesModel(card, target));
+  const bareModel = stripModelIdPrefix(model);
+  return find(model) ?? (bareModel === model ? undefined : find(bareModel));
+};
+
 /**
  * Agent config stores the number of history messages, excluding the current
  * turn. The runtime already carries the current user / tool turn, so without
@@ -67,12 +76,14 @@ export const resolveModelExtendParamList = async (
 ): Promise<ResolvedModelExtendParamList> => {
   const { model, provider } = request;
   const cards = providers.listModelCards();
-  const modelCard = cards.find((card) => card.providerId === provider && matchesModel(card, model));
+  const modelCard = findProviderCard(cards, model, provider);
   // The origin card of the same model under another provider; aggregation
   // providers may serve it without copying its settings.
+  const bareModel = stripModelIdPrefix(model);
   const canonicalModelCard =
     cards.find((card) => card.providerId !== provider && matchesModel(card, model)) ??
-    cards.find((card) => matchesModel(card, model));
+    cards.find((card) => matchesModel(card, model)) ??
+    (bareModel === model ? undefined : cards.find((card) => matchesModel(card, bareModel)));
   const userModelRow = await attempt('userModelRow', () =>
     providers.getUserModelRow?.(model, provider),
   );
@@ -321,7 +332,7 @@ export const resolveModelParams = async (
 
   const cards = providers.listModelCards();
   const findCard = (targetModel: string, targetProvider: string) =>
-    cards.find((card) => card.providerId === targetProvider && matchesModel(card, targetModel));
+    findProviderCard(cards, targetModel, targetProvider);
   // A non-empty user abilities object replaces the card's abilities, explicit
   // false values included; media routing and context assembly must agree or
   // native attachments are discarded.

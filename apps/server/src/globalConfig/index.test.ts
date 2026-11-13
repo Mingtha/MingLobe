@@ -74,10 +74,11 @@ describe('getServerAiProviderConfig', () => {
   });
 
   it('uses only the requested provider catalog and observes updates on the next read', async () => {
+    // Fork: an unset model list means no builtin catalog
     expect(await getServerAiProviderConfig(ModelProvider.LobeHub)).toEqual({
       enabled: true,
       enabledModels: undefined,
-      serverModelLists: [catalog[1]],
+      serverModelLists: [],
     });
 
     vi.mocked(loadModels).mockResolvedValue([catalog[0]]);
@@ -109,7 +110,8 @@ describe('getServerAiProviderConfig', () => {
     expect(loadModels).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves adaptive thinking when resolving a model from the default catalog', async () => {
+  it('preserves adaptive thinking when resolving a listed catalog model', async () => {
+    vi.stubEnv('LOBEHUB_MODEL_LIST', '-all,+claude-sonnet-4-6');
     const { resolveServerDefaultHeterogeneousModel } = await import('../modules/ModelRuntime');
 
     await expect(

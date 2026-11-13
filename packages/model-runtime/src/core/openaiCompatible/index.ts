@@ -502,8 +502,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       );
 
       try {
+        // No `user`: Gemini's OpenAI-compatible endpoint rejects it (400 `Unknown name "user"`)
         const res = await this.client.embeddings.create(
-          { ...requestPayload, encoding_format: 'float', user: options?.user },
+          { ...requestPayload, encoding_format: 'float' },
           { headers: options?.headers, signal: options?.signal },
         );
 

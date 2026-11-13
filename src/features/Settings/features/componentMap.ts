@@ -46,6 +46,9 @@ export const componentMap = {
   [SettingsTabs.Proxy]: dynamic(() => import('../proxy'), {
     loading: loading('Settings > Proxy'),
   }),
+  [SettingsTabs.Members]: dynamic(() => import('../members'), {
+    loading: loading('Settings > Members'),
+  }),
   [SettingsTabs.SystemTools]: dynamic(() => import('../system-tools'), {
     loading: loading('Settings > SystemTools'),
   }),

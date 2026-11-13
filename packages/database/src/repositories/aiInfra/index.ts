@@ -11,6 +11,7 @@ import { isEmpty } from 'es-toolkit/compat';
 import type { AIChatModelCard, AiProviderModelListItem, EnabledAiModel } from 'model-bank';
 import {
   AiModelSourceEnum,
+  findModelCard,
   isAiModelVisible,
   normalizeAiModelType,
   resolveModelSearchDefaultSettings,
@@ -198,15 +199,21 @@ export class AiInfraRepos {
     const enabledProviderIds = new Set(enabledProviders.map((item) => item.id));
     // User database models, check search settings
     // Exclude models already handled in builtinModelList to avoid duplicates
-    const appendedUserModels = allModels
-      .filter((item) => {
-        if (item.providerId === BRANDING_PROVIDER) return false;
-        if (builtinModelKeys.has(`${item.providerId}:${item.id}`)) return false;
-        return filterEnabled ? enabledProviderIds.has(item.providerId) && item.enabled : true;
-      })
-      .map((item) =>
-        injectSearchSettings(item.providerId, { ...item, type: normalizeAiModelType(item.type) }),
-      );
+    const appendedUserModels = await Promise.all(
+      allModels
+        .filter((item) => {
+          if (item.providerId === BRANDING_PROVIDER) return false;
+          if (builtinModelKeys.has(`${item.providerId}:${item.id}`)) return false;
+          return filterEnabled ? enabledProviderIds.has(item.providerId) && item.enabled : true;
+        })
+        .map(async (item) => {
+          const row = await this.withBankCard(item);
+          return injectSearchSettings(row.providerId, {
+            ...row,
+            type: normalizeAiModelType(row.type),
+          });
+        }),
+    );
 
     return [...builtinModels, ...appendedUserModels].sort(
       (a, b) => (a?.sort ?? Infinity) - (b?.sort ?? Infinity),
@@ -393,6 +400,9 @@ export class AiInfraRepos {
     );
 
     mergedModel = mergedModel.filter(isAiModelVisible);
+    mergedModel = await Promise.all(
+      mergedModel.map((m) => (builtinIds.has(m.id) ? m : this.withBankCard({ ...m, providerId }))),
+    );
 
     let list = mergedModel.map((m) =>
       injectSearchSettings(providerId, m),
@@ -423,6 +433,36 @@ export class AiInfraRepos {
     const config = await this.aiProviderModel.getAiProviderById(id, decryptor);
 
     return merge(this.providerConfigs[id] || {}, config) as AiProviderDetailItem;
+  };
+
+  /**
+   * A DB-only row inherits its bank card — by exact id, or as a gateway alias
+   * (`codex/gpt-6.1-sol` for `gpt-6.1-sol`) — with the row's own values winning
+   * by the same rules as a builtin merge in `getEnabledModels`. The fork ships no
+   * builtin catalog, so every fetched model reaches its card this way.
+   */
+  private withBankCard = async <T extends Record<string, any> & { id: string; providerId: string }>(
+    row: T,
+  ): Promise<T> => {
+    const card = findModelCard(await this.getModelBankModels(), row.id, row.providerId);
+    if (!card) return row;
+
+    return {
+      ...card,
+      ...row,
+      abilities: !isEmpty(row.abilities) ? row.abilities : card.abilities || {},
+      config: !isEmpty(row.config) ? merge(card.config || {}, row.config) : card.config,
+      contextWindowTokens:
+        typeof row.contextWindowTokens === 'number'
+          ? row.contextWindowTokens
+          : card.contextWindowTokens,
+      // A fetched row's name defaults to its raw id, which is no admin choice
+      displayName:
+        row.displayName && row.displayName !== row.id ? row.displayName : card.displayName,
+      pricing: row.pricing || card.pricing,
+      settings: isEmpty(row.settings) ? card.settings : merge(card.settings || {}, row.settings),
+      type: row.type || card.type,
+    };
   };
 
   /**

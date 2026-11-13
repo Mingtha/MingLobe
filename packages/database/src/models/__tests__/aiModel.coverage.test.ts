@@ -30,7 +30,7 @@ const cleanup = async () => {
 describe('AiModelModel coverage edges', () => {
   beforeEach(async () => {
     await cleanup();
-    await serverDB.insert(users).values({ id: userId });
+    await serverDB.insert(users).values({ id: userId, role: 'admin' });
   });
 
   afterEach(async () => {

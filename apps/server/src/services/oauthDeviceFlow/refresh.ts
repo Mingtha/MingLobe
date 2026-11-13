@@ -4,6 +4,7 @@ import debug from 'debug';
 
 import { AiProviderModel } from '@/database/models/aiProvider';
 import { type LobeChatDatabase } from '@/database/type';
+import { getProviderConfigOwnerId } from '@/database/utils/providerConfigOwner';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { type OAuthDeviceFlowConfig } from '@/types/aiProvider';
 
@@ -87,7 +88,9 @@ const persistKeyVaults = async (
   keyVaults: OAuthTokenKeyVaults,
   workspaceId?: string,
 ) => {
-  const aiProviderModel = new AiProviderModel(db, userId, workspaceId);
+  // Personal scope reads the admin's rows, so rotated tokens must be written back there too
+  const ownerId = workspaceId ? userId : ((await getProviderConfigOwnerId(db)) ?? userId);
+  const aiProviderModel = new AiProviderModel(db, ownerId, workspaceId);
   const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
 
   await aiProviderModel.updateConfig(
@@ -206,7 +209,8 @@ export const ensureFreshOAuthToken = async (
 
   if (!isExpiring(keyVaults)) return keyVaults;
 
-  const flightKey = `${userId}:${workspaceId ?? ''}:${providerId}`;
+  // Personal scope shares the admin-owned token pair, so all accounts share one flight
+  const flightKey = `${workspaceId ? userId : 'site'}:${workspaceId ?? ''}:${providerId}`;
 
   let flight = inflight.get(flightKey);
   if (!flight) {

@@ -1,5 +1,6 @@
 import { isRecord } from '@lobechat/utils/object';
 import type { LobeDefaultAiModelListItem, ModelAbilities } from 'model-bank';
+import { findModelCard } from 'model-bank';
 
 interface ResolveModelMediaCapabilitiesParams {
   builtinModels: LobeDefaultAiModelListItem[];
@@ -30,8 +31,5 @@ export const resolveModelMediaCapabilities = ({
   }
 
   // Preserve the canonical-model fallback used by aggregation providers.
-  return (
-    builtinModels.find((item) => item.id === model && item.providerId === provider) ??
-    builtinModels.find((item) => item.id === model)
-  )?.abilities;
+  return findModelCard(builtinModels, model, provider)?.abilities;
 };

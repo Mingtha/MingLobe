@@ -26,6 +26,12 @@ const extractClaudeModelId = (model: string): ExtractedClaudeModelId | undefined
     return { normalizedModelId: normalized.slice('anthropic/'.length), source: 'openRouter' };
   }
 
+  // Claude Code-compatible gateways namespace models as `claude/claude-*` and
+  // serve the native Messages contract, like `codex/gpt-*` on the OpenAI side.
+  if (normalized.startsWith('claude/claude-')) {
+    return { normalizedModelId: normalized.slice('claude/'.length), source: 'anthropic' };
+  }
+
   const bedrockPrefixIndex = normalized.lastIndexOf('anthropic.');
   if (bedrockPrefixIndex >= 0) {
     return {

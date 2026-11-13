@@ -20,7 +20,6 @@ import {
   type FormGroupItem,
   type FormValues,
   useForm,
-  useWatch,
 } from '@lobehub/ui/form';
 import { cssVar as sxVar } from '@lobehub/ui/stylex/cssVar.stylex';
 import { media } from '@lobehub/ui/stylex/media.stylex';
@@ -36,7 +35,7 @@ import urlJoin from 'url-join';
 
 import { FormInput, FormPassword } from '@/components/FormInput';
 import { ProviderCombine, ProviderIcon } from '@/components/LobeIcons';
-import { SkeletonInput, SkeletonSwitch } from '@/components/Skeleton';
+import { SkeletonInput } from '@/components/Skeleton';
 import { usePermission } from '@/hooks/usePermission';
 import { lambdaQuery } from '@/libs/trpc/client';
 import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -124,8 +123,6 @@ const ProviderConfig = memo<ProviderConfigProps>(
       checkMode,
       proxyUrl,
       showApiKey = true,
-      defaultShowBrowserRequest,
-      disableBrowserRequest,
       showChecker = true,
       supportResponsesApi,
     } = settings || {};
@@ -161,38 +158,6 @@ const ProviderConfig = memo<ProviderConfigProps>(
     ]);
     const enableBusinessFeatures = useServerConfigStore(
       serverConfigSelectors.enableBusinessFeatures,
-    );
-
-    // Watch form values in real-time to show/hide switches immediately
-    // Watch nested form values for endpoints
-    const formBaseURL = useWatch(form, 'keyVaults.baseURL');
-    const formEndpoint = useWatch(form, 'keyVaults.endpoint');
-    // Watch all possible credential fields for different providers
-    const formApiKey = useWatch(form, 'keyVaults.apiKey');
-    const formAccessKeyId = useWatch(form, 'keyVaults.accessKeyId');
-    const formSecretAccessKey = useWatch(form, 'keyVaults.secretAccessKey');
-    const formUsername = useWatch(form, 'keyVaults.username');
-    const formPassword = useWatch(form, 'keyVaults.password');
-
-    // Check if provider has endpoint and apiKey based on runtime config
-    // Fallback to data.keyVaults if runtime config is not yet loaded
-    const keyVaults = providerRuntimeConfig?.keyVaults || data?.keyVaults;
-    // Use form values first (for immediate update), fallback to stored values
-    const isProviderEndpointNotEmpty =
-      !!formBaseURL || !!formEndpoint || !!keyVaults?.baseURL || !!keyVaults?.endpoint;
-    // Check if any credential is present for different authentication types:
-    // - Standard apiKey (OpenAI, Azure, Cloudflare, VertexAI, etc.)
-    // - AWS Bedrock credentials (accessKeyId, secretAccessKey)
-    // - ComfyUI basic auth (username and password)
-    const isProviderApiKeyNotEmpty = !!(
-      formApiKey ||
-      keyVaults?.apiKey ||
-      formAccessKeyId ||
-      keyVaults?.accessKeyId ||
-      formSecretAccessKey ||
-      keyVaults?.secretAccessKey ||
-      (formUsername && formPassword) ||
-      (keyVaults?.username && keyVaults?.password)
     );
 
     // Track the last initialized provider ID to avoid resetting form during edits
@@ -346,33 +311,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
         }
       : undefined;
 
-    /*
-     * Conditions to show Client Fetch Switch
-     * 1. provider is not disabled browser request
-     * 2. provider show browser request by default
-     * 3. Provider allow to edit endpoint and the value of endpoint is not empty
-     * 4. There is an apikey provided by user
-     */
-    const showClientFetch =
-      !disableBrowserRequest &&
-      (defaultShowBrowserRequest ||
-        (showEndpoint && isProviderEndpointNotEmpty) ||
-        (showApiKey && isProviderApiKeyNotEmpty));
-
-    const clientFetchItem: FormFieldProps | undefined = showClientFetch
-      ? {
-          children: isLoading ? (
-            <SkeletonSwitch />
-          ) : (
-            <Switch disabled={!canManageProvider} loading={configUpdating} />
-          ),
-          desc: t('providerModels.config.fetchOnClient.desc'),
-          label: t('providerModels.config.fetchOnClient.title'),
-          minWidth: undefined,
-          name: 'fetchOnClient',
-        }
-      : undefined;
-
+    // Fork: no client request switch — requests always run on the server (isProviderFetchOnClient)
     const showResponsesApiSwitch =
       !!supportResponsesApi || (isCustom && isResponsesApiSupportedSdkType(settings?.sdkType));
 
@@ -392,7 +331,6 @@ const ProviderConfig = memo<ProviderConfigProps>(
             name: 'config.enableResponseApi',
           }
         : undefined,
-      clientFetchItem,
       showChecker
         ? {
             children: isLoading ? (

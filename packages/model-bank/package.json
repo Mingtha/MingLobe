@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./knowledgeCutoff": "./src/const/knowledgeCutoff.ts",
+    "./modelIdMatch": "./src/modelIdMatch.ts",
     "./utils": "./src/utils.ts",
     "./aiModel": "./src/types/aiModel.ts",
     "./aiProvider": "./src/types/aiProvider.ts",

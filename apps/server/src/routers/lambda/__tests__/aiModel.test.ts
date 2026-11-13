@@ -13,6 +13,10 @@ vi.mock('@/business/server/aiProvider', () => ({
 }));
 vi.mock('@/database/models/aiModel');
 vi.mock('@/database/models/user');
+const mockIsProviderConfigAdmin = vi.hoisted(() => vi.fn(async () => true));
+vi.mock('@/database/utils/providerConfigOwner', () => ({
+  isProviderConfigAdmin: mockIsProviderConfigAdmin,
+}));
 vi.mock('@/database/repositories/aiInfra');
 vi.mock('@/server/globalConfig', () => ({
   getServerGlobalConfig: vi.fn().mockReturnValue({

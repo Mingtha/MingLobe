@@ -2,6 +2,7 @@
 
 import { Outlet, useParams } from 'react-router';
 
+import { AdminOnly } from '@/features/AdminConfig';
 import ProviderMenu from '@/features/Settings/provider/ProviderMenu';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 
@@ -13,10 +14,14 @@ const Layout = () => {
     navigate(`/settings/provider/${providerKey}`);
   };
 
-  return params.providerId === 'all' ? (
-    <ProviderMenu mobile={true} onProviderSelect={handleProviderSelect} />
-  ) : (
-    <Outlet />
+  return (
+    <AdminOnly>
+      {params.providerId === 'all' ? (
+        <ProviderMenu mobile={true} onProviderSelect={handleProviderSelect} />
+      ) : (
+        <Outlet />
+      )}
+    </AdminOnly>
   );
 };
 

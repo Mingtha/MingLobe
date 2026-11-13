@@ -22,6 +22,7 @@ import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { getUserScopedAiProviderModelList } from '@/server/services/aiProviderAccess';
+import { resolveProviderConfigAccess } from '@/server/services/providerConfigAdmin';
 import { type ProviderConfig } from '@/types/user/settings';
 
 const AI_MODEL_UNIQUE_CONSTRAINT = 'ai_models_id_provider_id_user_id_pk';
@@ -51,6 +52,7 @@ const throwDuplicateAiModelError = (id: string): never => {
 const aiModelProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
   const wsId = ctx.workspaceId ?? undefined;
+  await resolveProviderConfigAccess(ctx.serverDB, ctx.userId, opts);
 
   const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
   const { aiProvider } = await getServerGlobalConfig();

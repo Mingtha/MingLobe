@@ -38,6 +38,8 @@ const goalFor = async (userId: string, agentId: string) => {
 };
 
 beforeEach(async () => {
+  // Fork: providers ship no builtin models, so list the one these goals use
+  vi.stubEnv('GOOGLE_MODEL_LIST', `-all,+${gemini.model}`);
   vi.spyOn(scheduler, 'scheduleGoalAdvance').mockResolvedValue();
   await db.insert(users).values([{ id: authorId }, { id: memberId }]);
   const [workspace] = await db
@@ -75,6 +77,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   await db.delete(tasks).where(eq(tasks.workspaceId, workspaceId));
   await db.delete(goals).where(eq(goals.workspaceId, workspaceId));
   await db.delete(agents).where(eq(agents.workspaceId, workspaceId));

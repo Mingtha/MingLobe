@@ -11,6 +11,7 @@ export {
   FISH_AUDIO_MAX_INSTRUCTIONS_LENGTH,
   FISH_AUDIO_SAMPLE_RATES,
 } from './const/ttsParameters';
+export * from './modelIdMatch';
 export * from './standard-parameters';
 export * from './types';
 export * from './utils';

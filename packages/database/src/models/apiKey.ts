@@ -17,11 +17,16 @@ export class ApiKeyModel {
     const keyHashes = getApiKeyHashes(key);
 
     const [row] = await db
-      .select()
+      .select({ apiKey: apiKeys, banExpires: users.banExpires, banned: users.banned })
       .from(apiKeys)
+      .innerJoin(users, eq(users.id, apiKeys.userId))
       .where(inArray(apiKeys.keyHash, keyHashes))
       .limit(1);
-    return row;
+    if (!row) return undefined;
+
+    // Fork: a banned (admin-disabled) member's keys stop authenticating, like their sessions
+    const banActive = row.banned && (!row.banExpires || row.banExpires > new Date());
+    return banActive ? undefined : row.apiKey;
   };
 
   private userId: string;

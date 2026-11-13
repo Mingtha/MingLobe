@@ -15,6 +15,7 @@ import { merge } from '@/utils/merge';
 import type { AiProviderSelectItem } from '../schemas';
 import { aiModels, aiProviders } from '../schemas';
 import type { LobeChatDatabase } from '../type';
+import { providerConfigOwnerWhere } from '../utils/providerConfigOwner';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 
 type DecryptUserKeyVaults = (encryptKeyVaultsStr: string | null) => Promise<any>;
@@ -32,11 +33,16 @@ export class AiProviderModel {
     this.db = db;
   }
 
+  // Personal scope reads the site-wide config owned by the admin (see providerConfigOwner)
   private scopeWhere = () =>
-    buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, aiProviders);
+    this.workspaceId
+      ? buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, aiProviders)
+      : providerConfigOwnerWhere(aiProviders);
 
   private modelScopeWhere = () =>
-    buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, aiModels);
+    this.workspaceId
+      ? buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, aiModels)
+      : providerConfigOwnerWhere(aiModels);
 
   private values<T extends object>(base: T) {
     return buildWorkspacePayload({ userId: this.userId, workspaceId: this.workspaceId }, base);

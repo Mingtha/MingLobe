@@ -5348,4 +5348,30 @@ When I am ___, I need ___
   'automations.empty.title': 'No automations yet',
   'automations.empty.desc':
     'Ask an agent to keep an eye on a connector for you, like "Tell me when CI fails on this PR". Subscriptions you approve show up here.',
+  'adminConfig.contactAdmin.desc':
+    'AI providers are set up by your admin for everyone. Ask your admin if you need a change.',
+  'adminConfig.contactAdmin.title': 'Managed by your admin',
+  'members.allowlist.add': 'Add',
+  'members.allowlist.desc':
+    'Only these emails and domains can create an account. Your own admin email can always sign up. Removing an entry does not affect accounts that already exist.',
+  'members.allowlist.empty': 'The list is empty, so only you can sign up.',
+  'members.allowlist.placeholder': 'Email or domain, e.g. friend@example.com or example.com',
+  'members.allowlist.remove': 'Remove',
+  'members.allowlist.saveFailed': "Couldn't save the list. Try again.",
+  'members.allowlist.title': 'Who can sign up',
+  'members.list.actionFailed': "Couldn't update this account. Try again.",
+  'members.list.admin': 'Admin',
+  'members.list.delete': 'Delete',
+  'members.list.deleteConfirm.desc':
+    "Their conversations, agents, files and other data are deleted for good. This can't be undone. If their email is still on the sign-up list, they can sign up again as a new account.",
+  'members.list.deleteConfirm.title': 'Delete {{name}}?',
+  'members.list.desc':
+    'Everyone who has an account. Disabling signs them out within 2 minutes and blocks sign-in until you enable them again.',
+  'members.list.disable': 'Disable',
+  'members.list.disabled': 'Disabled',
+  'members.list.enable': 'Enable',
+  'members.list.joined': 'Joined {{date}}',
+  'members.list.lastActive': 'Last active {{date}}',
+  'members.list.title': 'Accounts',
+  'tab.members': 'Members',
 };
