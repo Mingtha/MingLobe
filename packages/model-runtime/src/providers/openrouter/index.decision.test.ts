@@ -72,4 +72,9 @@ describe('LobeOpenRouterAI decision models', () => {
 
     expect(models.map((model) => model.id)).toEqual(['openai/gpt-4']);
   });
+
+  it('rejects the snapshot when either directory is unavailable during a sync', async () => {
+    stubModelsApi(async () => ({ ok: false, status: 503 }));
+    await expect(params.models({ listOptions: { requireComplete: true } })).rejects.toThrow('503');
+  });
 });

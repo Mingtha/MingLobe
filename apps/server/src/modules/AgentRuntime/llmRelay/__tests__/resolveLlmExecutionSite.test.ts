@@ -61,98 +61,24 @@ describe('resolveLlmExecutionSite', () => {
     ).toEqual({ site: 'server' });
   });
 
-  it('relays Ollama (fetchOnClient by default) to the client that declared it', async () => {
-    expect(await resolve('ollama', executor(['ollama']))).toEqual({
-      preferredClientId: 'tab-a',
-      runtimeProvider: 'ollama',
-      site: 'client',
-    });
-  });
+  it.each(['ollama', 'magpie', 'my-local-llm'])(
+    'keeps %s on the server even if a tab offers to run it',
+    async (provider) => {
+      expect(await resolve(provider)).toEqual({ site: 'server' });
+      expect(await resolve(provider, executor([provider]))).toEqual({ site: 'server' });
+    },
+  );
 
-  it('relays an inherited executor on the channel its client subscribed to', async () => {
-    const inherited = executor(['ollama']);
-    (inherited.host.llmExecutor as any).channelOperationId = 'parent-op';
+  it.each([undefined, 'test-key'])(
+    'ignores a saved client preference with API key %s',
+    async (apiKey) => {
+      providerRow.current = {
+        fetchOnClient: true,
+        keyVaults: { apiKey, baseURL: 'http://localhost:1234/v1' },
+        settings: { sdkType: 'openai' },
+      };
 
-    expect(await resolve('ollama', inherited)).toEqual({
-      channelOperationId: 'parent-op',
-      preferredClientId: 'tab-a',
-      runtimeProvider: 'ollama',
-      site: 'client',
-    });
-  });
-
-  it('reports unavailable when no client declared it can run the provider', async () => {
-    expect(await resolve('ollama')).toEqual({ reason: 'no_executor', site: 'unavailable' });
-    expect(await resolve('ollama', executor(['lmstudio']))).toEqual({
-      reason: 'no_executor',
-      site: 'unavailable',
-    });
-    expect(
-      await resolve('ollama', {
-        host: {
-          llmExecutor: { capabilities: ['llm_relay@9'], clientId: 'tab-a', providers: ['ollama'] },
-        },
-      }),
-    ).toEqual({ reason: 'no_executor', site: 'unavailable' });
-  });
-
-  it('follows an explicit fetchOnClient: false for a provider that defaults to the client', async () => {
-    providerRow.current = { fetchOnClient: false, keyVaults: {} };
-    expect(await resolve('ollama', executor(['ollama']))).toEqual({ site: 'server' });
-  });
-
-  it('keeps Ollama on the server when the deployment proxies it (OLLAMA_PROXY_URL)', async () => {
-    vi.stubEnv('OLLAMA_PROXY_URL', 'http://ollama.internal:11434');
-    try {
-      expect(await resolve('ollama', executor(['ollama']))).toEqual({ site: 'server' });
-
-      providerRow.current = { fetchOnClient: true, keyVaults: {} };
-      expect(await resolve('ollama', executor(['ollama']))).toMatchObject({ site: 'client' });
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
-  it('relays a custom provider with client requests enabled, with its sdkType', async () => {
-    providerRow.current = {
-      fetchOnClient: true,
-      keyVaults: { apiKey: 'sk-local', baseURL: 'http://127.0.0.1:1234/v1' },
-      settings: { sdkType: 'openai' },
-    };
-
-    expect(await resolve('my-local-llm', executor(['my-local-llm']))).toEqual({
-      preferredClientId: 'tab-a',
-      runtimeProvider: 'openai',
-      site: 'client',
-    });
-  });
-
-  it('keeps a provider without client requests on the server', async () => {
-    providerRow.current = {
-      fetchOnClient: false,
-      keyVaults: { apiKey: 'sk-local', baseURL: 'http://127.0.0.1:1234/v1' },
-    };
-
-    expect(await resolve('my-local-llm', executor(['my-local-llm']))).toEqual({ site: 'server' });
-  });
-
-  // The client store sends a provider with only a base URL from the device
-  // whatever `fetchOnClient` says; the server must relay it the same way, or the
-  // client prepares no executor and the call fails as `no_executor`.
-  it('relays a provider with only a base URL, like the client store does', async () => {
-    providerRow.current = {
-      fetchOnClient: false,
-      keyVaults: { baseURL: 'http://127.0.0.1:1234/v1' },
-    };
-
-    expect(await resolve('my-local-llm', executor(['my-local-llm']))).toMatchObject({
-      site: 'client',
-    });
-  });
-
-  it('keeps a provider whose card disables browser requests on the server', async () => {
-    providerRow.current = { fetchOnClient: true, keyVaults: { baseURL: 'http://127.0.0.1:1/v1' } };
-
-    expect(await resolve('cloudflare', executor(['cloudflare']))).toEqual({ site: 'server' });
-  });
+      expect(await resolve('my-local-llm', executor(['my-local-llm']))).toEqual({ site: 'server' });
+    },
+  );
 });

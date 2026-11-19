@@ -135,61 +135,6 @@ describe('AiModelAction', () => {
     });
   });
 
-  describe('batchUpdateAiModels', () => {
-    it('should batch update models and refresh list', async () => {
-      const models: AiProviderModelListItem[] = [
-        {
-          abilities: {},
-          displayName: 'Model 1',
-          enabled: true,
-          id: 'model-1',
-          source: 'builtin',
-          type: 'chat',
-        } as AiProviderModelListItem,
-        {
-          abilities: {},
-          displayName: 'Model 2',
-          enabled: false,
-          id: 'model-2',
-          source: 'builtin',
-          type: 'chat',
-        } as AiProviderModelListItem,
-      ];
-
-      const { result } = renderHook(() => useStore());
-      const refreshSpy = vi
-        .spyOn(result.current, 'refreshAiModelList')
-        .mockResolvedValue(undefined);
-      const serviceSpy = vi
-        .spyOn(aiModelService, 'batchUpdateAiModels')
-        .mockResolvedValue(undefined as any);
-
-      await act(async () => {
-        await result.current.batchUpdateAiModels(models);
-      });
-
-      expect(serviceSpy).toHaveBeenCalledWith('test-provider', models);
-      expect(refreshSpy).toHaveBeenCalled();
-    });
-
-    it('should not update when no active provider', async () => {
-      act(() => {
-        useStore.setState({ activeAiProvider: undefined });
-      });
-
-      const { result } = renderHook(() => useStore());
-      const serviceSpy = vi
-        .spyOn(aiModelService, 'batchUpdateAiModels')
-        .mockResolvedValue(undefined as any);
-
-      await act(async () => {
-        await result.current.batchUpdateAiModels([]);
-      });
-
-      expect(serviceSpy).not.toHaveBeenCalled();
-    });
-  });
-
   describe('clearModelsByProvider', () => {
     it('should clear all models for provider and refresh list', async () => {
       const { result } = renderHook(() => useStore());
@@ -255,269 +200,49 @@ describe('AiModelAction', () => {
   });
 
   describe('fetchRemoteModelList', () => {
-    it('should fetch remote models and batch update', async () => {
-      const mockRemoteModels = [
-        {
-          displayName: 'Remote Model 1',
-          enabled: true,
-          files: true,
-          functionCall: true,
-          id: 'remote-1',
-          type: 'chat',
-          vision: false,
-        },
-        {
-          displayName: 'Remote Model 2',
-          enabled: false,
-          id: 'remote-2',
-          imageOutput: true,
-          type: 'image',
-        },
-      ];
+    it.each(['magpie', 'openai', 'custom-gateway'])(
+      'syncs %s on the server and refreshes cached lists even when another provider is active',
+      async (provider) => {
+        const { result } = renderHook(() => useStore());
+        const refresh = vi.spyOn(result.current, 'refreshAiModelList').mockResolvedValue(undefined);
+        const sync = vi.spyOn(aiModelService, 'syncProviderModels').mockResolvedValue({
+          duplicateIds: [],
+          removedCount: 0,
+        });
+        await act(async () => result.current.fetchRemoteModelList(provider));
+        expect(sync).toHaveBeenCalledWith(provider);
+        expect(refresh).toHaveBeenCalledOnce();
+        expect(toast.warning).not.toHaveBeenCalled();
+      },
+    );
 
+    it('shows duplicate ID warnings returned by the server after a successful sync', async () => {
       const { result } = renderHook(() => useStore());
-      const batchUpdateSpy = vi
-        .spyOn(aiModelService, 'batchUpdateAiModels')
-        .mockResolvedValue(undefined as any);
-      const refreshSpy = vi
-        .spyOn(result.current, 'refreshAiModelList')
-        .mockResolvedValue(undefined);
-
-      // Mock dynamic import
-      vi.resetModules();
-      vi.doMock('@/services/models', () => ({
-        modelsService: {
-          getModels: vi.fn().mockResolvedValue(mockRemoteModels),
-        },
-      }));
-
-      await act(async () => {
-        await result.current.fetchRemoteModelList('test-provider');
+      vi.spyOn(aiModelService, 'syncProviderModels').mockResolvedValue({
+        duplicateIds: ['one', 'two', 'three', 'four'],
+        removedCount: 5,
       });
-
-      await waitFor(() => {
-        expect(batchUpdateSpy).toHaveBeenCalled();
-      });
-
-      expect(batchUpdateSpy).toHaveBeenCalledWith('test-provider', expect.any(Array));
-      const batchUpdateArg = batchUpdateSpy.mock.calls[0][1];
-      expect(batchUpdateArg).toHaveLength(2);
-      expect(batchUpdateArg[0]).toMatchObject({
-        abilities: {
-          files: true,
-          functionCall: true,
-          vision: false,
-        },
-        displayName: 'Remote Model 1',
-        enabled: true,
-        id: 'remote-1',
-        source: 'remote',
-        type: 'chat',
-      });
-      expect(batchUpdateArg[1]).toMatchObject({
-        abilities: {
-          imageOutput: true,
-        },
-        displayName: 'Remote Model 2',
-        enabled: false,
-        id: 'remote-2',
-        source: 'remote',
-        type: 'image',
-      });
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect(toast.warning).not.toHaveBeenCalled();
-    });
-
-    it('should deduplicate remote models and warn after a successful update', async () => {
-      const generatedImageModelId = 'gemini-3.1-flash-image-preview:image';
-      const mockRemoteModels = [
-        {
-          displayName: 'Gemini Base',
-          id: 'gemini-3.1-flash-image-preview',
-          type: 'chat',
-        },
-        {
-          displayName: 'Provider Image Model',
-          id: generatedImageModelId,
-          type: 'image',
-        },
-        { displayName: 'KoboldCpp First', id: 'koboldcpp', type: 'chat' },
-        { displayName: 'KoboldCpp Second', id: 'koboldcpp', type: 'chat' },
-        { displayName: 'Duplicate Two First', id: 'duplicate-two', type: 'chat' },
-        { displayName: 'Duplicate Two Second', id: 'duplicate-two', type: 'chat' },
-        { displayName: 'Duplicate Three First', id: 'duplicate-three', type: 'chat' },
-        { displayName: 'Duplicate Three Second', id: 'duplicate-three', type: 'chat' },
-        {
-          displayName: 'LobeHub Image Model',
-          id: generatedImageModelId,
-          type: 'image',
-        },
-      ];
-
-      const { result } = renderHook(() => useStore());
-      const batchUpdateSpy = vi
-        .spyOn(aiModelService, 'batchUpdateAiModels')
-        .mockResolvedValue(undefined as any);
-      const refreshSpy = vi
-        .spyOn(result.current, 'refreshAiModelList')
-        .mockResolvedValue(undefined);
-
-      vi.resetModules();
-      vi.doMock('@/services/models', () => ({
-        modelsService: {
-          getModels: vi.fn().mockResolvedValue(mockRemoteModels),
-        },
-      }));
-
-      await act(async () => {
-        await result.current.fetchRemoteModelList('test-provider');
-      });
-
-      const batchUpdateArg = batchUpdateSpy.mock.calls[0][1];
-      expect(batchUpdateArg).toHaveLength(5);
-      expect(batchUpdateArg.find(({ id }) => id === 'koboldcpp')?.displayName).toBe(
-        'KoboldCpp First',
-      );
-      expect(batchUpdateArg.find(({ id }) => id === generatedImageModelId)?.displayName).toBe(
-        'LobeHub Image Model',
-      );
+      await act(async () => result.current.fetchRemoteModelList('openai'));
       expect(t).toHaveBeenCalledWith('providerModels.list.fetcher.duplicatesRemovedWithMore', {
-        count: 4,
-        ids: 'koboldcpp, duplicate-two, duplicate-three',
+        count: 5,
+        ids: 'one, two, three',
         ns: 'modelProvider',
         remainingCount: 1,
       });
-      expect(toast.warning).toHaveBeenCalledWith(
-        'providerModels.list.fetcher.duplicatesRemovedWithMore',
-      );
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect(toast.warning).toHaveBeenCalledOnce();
     });
 
-    it('should not warn when updating deduplicated models fails', async () => {
-      const mockRemoteModels = [
-        { id: 'duplicate-model', type: 'chat' },
-        { id: 'duplicate-model', type: 'chat' },
-      ];
-
+    it('propagates failures without refreshing or claiming success', async () => {
       const { result } = renderHook(() => useStore());
-      vi.spyOn(aiModelService, 'batchUpdateAiModels').mockRejectedValue(
-        new Error('batch update failed'),
+      const refresh = vi.spyOn(result.current, 'refreshAiModelList').mockResolvedValue(undefined);
+      vi.spyOn(aiModelService, 'syncProviderModels').mockRejectedValue(
+        new Error('model fetch failed'),
       );
-
-      vi.resetModules();
-      vi.doMock('@/services/models', () => ({
-        modelsService: {
-          getModels: vi.fn().mockResolvedValue(mockRemoteModels),
-        },
-      }));
-
-      await expect(async () => {
-        await act(async () => {
-          await result.current.fetchRemoteModelList('test-provider');
-        });
-      }).rejects.toThrow('batch update failed');
-
+      await expect(result.current.fetchRemoteModelList('openai')).rejects.toThrow(
+        'model fetch failed',
+      );
+      expect(refresh).not.toHaveBeenCalled();
       expect(toast.warning).not.toHaveBeenCalled();
-    });
-
-    it('should preserve enabled status of existing models when fetching', async () => {
-      const mockRemoteModels = [
-        {
-          displayName: 'Remote Model 1',
-          id: 'remote-1',
-          enabled: true,
-          type: 'chat',
-        },
-        {
-          displayName: 'Remote Model 2',
-          id: 'remote-2',
-          enabled: false,
-          type: 'chat',
-        },
-      ];
-
-      act(() => {
-        useStore.setState({
-          aiModelListMap: {
-            'test-provider': [
-              { id: 'remote-1', enabled: false, type: 'chat' },
-              { id: 'remote-2', enabled: true, type: 'chat' },
-            ] as AiProviderModelListItem[],
-          },
-        });
-      });
-
-      const { result } = renderHook(() => useStore());
-      const batchUpdateSpy = vi
-        .spyOn(aiModelService, 'batchUpdateAiModels')
-        .mockResolvedValue(undefined as any);
-
-      vi.doMock('@/services/models', () => ({
-        modelsService: {
-          getModels: vi.fn().mockResolvedValue(mockRemoteModels),
-        },
-      }));
-
-      await act(async () => {
-        await result.current.fetchRemoteModelList('test-provider');
-      });
-
-      await waitFor(() => {
-        expect(batchUpdateSpy).toHaveBeenCalled();
-      });
-
-      const batchUpdateArg = batchUpdateSpy.mock.calls[0][1];
-      expect(batchUpdateArg[0]).toMatchObject({
-        id: 'remote-1',
-        enabled: false,
-      });
-      expect(batchUpdateArg[1]).toMatchObject({
-        id: 'remote-2',
-        enabled: true,
-      });
-    });
-
-    it('should not update if remote service returns no data', async () => {
-      const { result } = renderHook(() => useStore());
-      const batchUpdateSpy = vi
-        .spyOn(result.current, 'batchUpdateAiModels')
-        .mockResolvedValue(undefined);
-
-      // Mock dynamic import with null response
-      vi.resetModules();
-      vi.doMock('@/services/models', () => ({
-        modelsService: {
-          getModels: vi.fn().mockResolvedValue(null),
-        },
-      }));
-
-      await act(async () => {
-        await result.current.fetchRemoteModelList('test-provider');
-      });
-
-      expect(batchUpdateSpy).not.toHaveBeenCalled();
-    });
-
-    it('should propagate remote service errors', async () => {
-      const { result } = renderHook(() => useStore());
-      const batchUpdateSpy = vi
-        .spyOn(result.current, 'batchUpdateAiModels')
-        .mockResolvedValue(undefined);
-
-      vi.resetModules();
-      vi.doMock('@/services/models', () => ({
-        modelsService: {
-          getModels: vi.fn().mockRejectedValue(new Error('model fetch failed')),
-        },
-      }));
-
-      await expect(async () => {
-        await act(async () => {
-          await result.current.fetchRemoteModelList('test-provider');
-        });
-      }).rejects.toThrow('model fetch failed');
-
-      expect(batchUpdateSpy).not.toHaveBeenCalled();
     });
   });
 

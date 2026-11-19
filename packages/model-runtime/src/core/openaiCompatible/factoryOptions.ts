@@ -9,6 +9,7 @@ import type {
   ChatStreamCallbacks,
   ChatStreamPayload,
   GenerateObjectPayload,
+  ModelListOptions,
 } from '../../types';
 import type { ILobeAgentRuntimeErrorType } from '../../types/error';
 import type { CreateImagePayload, CreateImageResponse } from '../../types/image';
@@ -183,7 +184,11 @@ export interface OpenAICompatibleFactoryOptions<T extends Record<string, any> = 
     options: CreateVideoOptions,
   ) => Promise<PollVideoStatusResult>;
   models?:
-    | ((params: { client: OpenAI; options?: ConstructorOptions<T> }) => Promise<ChatModelCard[]>)
+    | ((params: {
+        client: OpenAI;
+        listOptions?: ModelListOptions;
+        options?: ConstructorOptions<T>;
+      }) => Promise<ChatModelCard[]>)
     | {
         transformModel?: (model: OpenAI.Model) => ChatModelCard;
       };

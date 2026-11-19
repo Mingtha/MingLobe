@@ -2,7 +2,12 @@
 import { fal } from '@fal-ai/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { clearFalInputSchemaCache, FAL_INPUT_SCHEMA_TTL_MS, getFalInputSchema } from './catalog';
+import {
+  clearFalInputSchemaCache,
+  FAL_INPUT_SCHEMA_TTL_MS,
+  getFalInputSchema,
+  listFalGenerationModels,
+} from './catalog';
 import { LobeFalAI } from './index';
 import { buildFalCatalogResponse, buildFalOpenAPI } from './testUtils';
 
@@ -126,6 +131,17 @@ describe('LobeFalAI createImage with any fal endpoint', () => {
       instance.createImage({ model: 'fal-ai/some-upscaler', params: { prompt: 'p' } }),
     ).resolves.toEqual({ height: 512, imageUrl: 'https://example.com/one.png', width: 512 });
   });
+});
+
+it('rejects an incomplete fal catalog when a later page fails', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ has_more: true, models: [], next_cursor: 'next' }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 })),
+  );
+  await expect(listFalGenerationModels('test-key', { requireComplete: true })).rejects.toThrow();
 });
 
 describe('LobeFalAI models', () => {

@@ -29,7 +29,6 @@ import {
   aiModelReasoningConfigResource,
 } from './projection';
 import { aiModelSelectors } from './selectors';
-import { deduplicateRemoteModels } from './utils';
 
 const MAX_DUPLICATE_MODEL_IDS_IN_WARNING = 3;
 
@@ -136,14 +135,6 @@ export class AiModelActionImpl {
     await this.#get().refreshAiModelList();
   };
 
-  batchUpdateAiModels = async (models: AiProviderModelListItem[]): Promise<void> => {
-    const { activeAiProvider: id } = this.#get();
-    if (!id) return;
-
-    await aiModelService.batchUpdateAiModels(id, models);
-    await this.#get().refreshAiModelList();
-  };
-
   clearModelsByProvider = async (provider: string): Promise<void> => {
     await aiModelService.clearModelsByProvider(provider);
     await this.#get().refreshAiModelList();
@@ -160,65 +151,25 @@ export class AiModelActionImpl {
   };
 
   fetchRemoteModelList = async (providerId: string): Promise<void> => {
-    const { modelsService } = await import('@/services/models');
+    const { duplicateIds, removedCount } = await aiModelService.syncProviderModels(providerId);
+    await this.#get().refreshAiModelList();
 
-    const data = await modelsService.getModels(providerId);
-    if (data) {
-      // The provider's confirmed list is the replica view; keeping its enabled
-      // flags avoids re-disabling models the user has already turned on.
-      const currentEnabledState = new Map(
-        (this.#get().aiModelListMap[providerId] ?? []).map(({ enabled, id }) => [id, enabled]),
+    if (removedCount > 0) {
+      const visibleDuplicateIds = duplicateIds.slice(0, MAX_DUPLICATE_MODEL_IDS_IN_WARNING);
+      const remainingCount = duplicateIds.length - visibleDuplicateIds.length;
+      toast.warning(
+        t(
+          remainingCount > 0
+            ? 'providerModels.list.fetcher.duplicatesRemovedWithMore'
+            : 'providerModels.list.fetcher.duplicatesRemoved',
+          {
+            count: removedCount,
+            ids: visibleDuplicateIds.join(', '),
+            ns: 'modelProvider',
+            remainingCount,
+          },
+        ),
       );
-      const remoteModels = data.map<AiProviderModelListItem>((model) => {
-        const hasAnyAbility =
-          model.files ||
-          model.functionCall ||
-          model.imageOutput ||
-          model.reasoning ||
-          model.search ||
-          model.video ||
-          model.vision;
-
-        return {
-          ...model,
-          ...(hasAnyAbility && {
-            abilities: {
-              files: model.files,
-              functionCall: model.functionCall,
-              imageOutput: model.imageOutput,
-              reasoning: model.reasoning,
-              search: model.search,
-              video: model.video,
-              vision: model.vision,
-            },
-          }),
-          enabled: currentEnabledState.get(model.id) ?? model.enabled ?? false,
-          source: 'remote',
-          type: model.type ?? 'chat',
-        };
-      });
-      const { duplicateIds, models, removedCount } = deduplicateRemoteModels(remoteModels);
-
-      await this.#get().batchUpdateAiModels(models);
-
-      if (removedCount > 0) {
-        const visibleDuplicateIds = duplicateIds.slice(0, MAX_DUPLICATE_MODEL_IDS_IN_WARNING);
-        const remainingCount = duplicateIds.length - visibleDuplicateIds.length;
-
-        toast.warning(
-          t(
-            remainingCount > 0
-              ? 'providerModels.list.fetcher.duplicatesRemovedWithMore'
-              : 'providerModels.list.fetcher.duplicatesRemoved',
-            {
-              count: removedCount,
-              ids: visibleDuplicateIds.join(', '),
-              ns: 'modelProvider',
-              remainingCount,
-            },
-          ),
-        );
-      }
     }
   };
 

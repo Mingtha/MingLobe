@@ -66,25 +66,19 @@ describe('model provider predicates', () => {
 });
 
 describe('isProviderFetchOnClient', () => {
-  it('runs a local provider on the device unless fetchOnClient says otherwise', () => {
-    expect(isProviderFetchOnClient('lmstudio', undefined)).toBe(true);
-    expect(isProviderFetchOnClient('ollama', { keyVaults: {} })).toBe(true);
-    expect(isProviderFetchOnClient('lmstudio', { fetchOnClient: false })).toBe(false);
-  });
-
-  it('runs on the server without an endpoint or a key', () => {
-    expect(isProviderFetchOnClient('openai', { fetchOnClient: true, keyVaults: {} })).toBe(false);
-  });
-
-  it('runs on the device when only a base URL is set', () => {
-    expect(
-      isProviderFetchOnClient('openai', { keyVaults: { baseURL: 'http://localhost:8000/v1' } }),
-    ).toBe(true);
-  });
-
-  it('follows fetchOnClient with both a base URL and a key, default server', () => {
-    const keyVaults = { apiKey: 'sk', baseURL: 'http://localhost:8000/v1' };
-    expect(isProviderFetchOnClient('openai', { fetchOnClient: true, keyVaults })).toBe(true);
-    expect(isProviderFetchOnClient('openai', { keyVaults })).toBe(false);
-  });
+  it.each(['magpie', 'ollama', 'lmstudio', 'unsloth', 'openai', 'custom-provider'])(
+    'always uses the server for %s, even for client-only or previously enabled configs',
+    (provider) => {
+      expect(isProviderFetchOnClient(provider, undefined)).toBe(false);
+      expect(
+        isProviderFetchOnClient(provider, { keyVaults: { baseURL: 'http://localhost:8000/v1' } }),
+      ).toBe(false);
+      expect(
+        isProviderFetchOnClient(provider, {
+          fetchOnClient: true,
+          keyVaults: { apiKey: 'test', baseURL: 'http://localhost:8000/v1' },
+        }),
+      ).toBe(false);
+    },
+  );
 });

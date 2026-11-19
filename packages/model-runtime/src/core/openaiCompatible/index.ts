@@ -13,6 +13,7 @@ import type {
   EmbeddingsPayload,
   GenerateObjectOptions,
   GenerateObjectPayload,
+  ModelListOptions,
   TextToSpeechOptions,
   TextToSpeechPayload,
 } from '../../types';
@@ -481,8 +482,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       });
     }
 
-    async models() {
-      return listOpenAICompatibleModels(this.context, factory);
+    async models(options?: ModelListOptions) {
+      return listOpenAICompatibleModels(this.context, factory, options);
     }
 
     async generateObject(payload: GenerateObjectPayload, options?: GenerateObjectOptions) {

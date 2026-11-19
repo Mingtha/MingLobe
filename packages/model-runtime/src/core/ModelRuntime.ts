@@ -19,6 +19,7 @@ import type {
   EmbeddingsPayload,
   GenerateObjectOptions,
   GenerateObjectPayload,
+  ModelListOptions,
   ModelRequestOptions,
   OnFinishData,
   PullModelParams,
@@ -604,8 +605,8 @@ export class ModelRuntime {
     return this._runtime.checkCredentials?.();
   }
 
-  async models() {
-    return this._runtime.models?.();
+  async models(options?: ModelListOptions) {
+    return options ? this._runtime.models?.(options) : this._runtime.models?.();
   }
 
   async embeddings(payload: EmbeddingsPayload, options?: EmbeddingsOptions) {

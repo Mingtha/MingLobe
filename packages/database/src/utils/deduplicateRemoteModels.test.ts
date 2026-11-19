@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { deduplicateRemoteModels } from './utils';
+import { deduplicateRemoteModels } from './deduplicateRemoteModels';
 
 describe('deduplicateRemoteModels', () => {
   it('should keep the first ordinary model with a duplicate id', () => {

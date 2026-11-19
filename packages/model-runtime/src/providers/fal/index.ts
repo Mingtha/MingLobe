@@ -6,6 +6,7 @@ import type { RuntimeImageGenParamsValue } from 'model-bank';
 import type { ClientOptions } from 'openai';
 
 import type { LobeRuntimeAI } from '../../core/BaseAI';
+import type { ModelListOptions } from '../../types';
 import type { CheckCredentialsResult } from '../../types/credentials';
 import { AgentRuntimeErrorType } from '../../types/error';
 import type { CreateImagePayload, CreateImageResponse } from '../../types/image';
@@ -299,11 +300,11 @@ export class LobeFalAI implements LobeRuntimeAI {
    * endpoint (any owner, not only `fal-ai/`) can be enabled on the generation pages. Endpoints of
    * built-in cards are skipped: they are already listed with curated parameters and pricing.
    */
-  async models(): Promise<ChatModelCard[]> {
+  async models(options?: ModelListOptions): Promise<ChatModelCard[]> {
     const builtinEndpoints = await loadBuiltinFalEndpoints();
 
     try {
-      const models = await listFalGenerationModels(this.apiKey);
+      const models = await listFalGenerationModels(this.apiKey, options);
 
       return models
         .filter((model) => !builtinEndpoints.has(model.id))

@@ -58,9 +58,8 @@ export class AiModelService {
     return lambdaClient.aiModel.updateAiModelReasoningConfig.mutate({ id, providerId, value });
   };
 
-  batchUpdateAiModels = async (id: string, models: AiProviderModelListItem[]) => {
-    return lambdaClient.aiModel.batchUpdateAiModels.mutate({ id, models });
-  };
+  syncProviderModels = async (providerId: string) =>
+    lambdaClient.aiModel.syncProviderModels.mutate({ providerId });
 
   batchToggleAiModels = async (id: string, models: string[], enabled: boolean) => {
     return lambdaClient.aiModel.batchToggleAiModels.mutate({ enabled, id, models });

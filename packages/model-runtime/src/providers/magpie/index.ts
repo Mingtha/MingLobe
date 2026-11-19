@@ -1,16 +1,35 @@
 import { CURRENT_VERSION } from '@lobechat/const';
 import type { ChatModelCard } from '@lobechat/types';
-import { loadModels, MODEL_REASONING_EXTEND_PARAMS, ModelProvider } from 'model-bank';
+import {
+  CHAT_MODEL_IMAGE_GENERATION_PARAMS,
+  loadModels,
+  MODEL_REASONING_EXTEND_PARAMS,
+  MODEL_REASONING_PARAM_LEVELS,
+  ModelProvider,
+} from 'model-bank';
+import { getMagpieCatalogAlias, stripModelIdPrefix } from 'model-bank/modelIdMatch';
 import OpenAI from 'openai';
 
 import type { OpenAICompatibleFactoryOptions } from '../../core/openaiCompatible';
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatible';
+import type { ChatStreamPayload } from '../../types';
 import { processMultiProviderModelList } from '../../utils/modelParse';
 
 type ModelSettings = NonNullable<ChatModelCard['settings']>;
+type BankModel = Awaited<ReturnType<typeof loadModels>>[number];
 
-/** The params that set how hard a model thinks, which a `reasoning: false` card must not offer. */
-const REASONING_PARAMS = new Set<string>(MODEL_REASONING_EXTEND_PARAMS);
+/** Controls a model must not offer when Magpie explicitly turns reasoning off. */
+const REASONING_PARAMS = new Set<string>([
+  ...MODEL_REASONING_EXTEND_PARAMS,
+  'enableAdaptiveThinking',
+  'enableReasoning',
+  'preserveThinking',
+  'reasoningBudgetToken',
+  'reasoningBudgetToken32k',
+  'reasoningBudgetToken80k',
+  'thinking',
+  'thinkingBudget',
+]);
 
 /**
  * One row of magpie's `GET /v1/models`.
@@ -27,9 +46,12 @@ const REASONING_PARAMS = new Set<string>(MODEL_REASONING_EXTEND_PARAMS);
  */
 interface MagpieModelCard {
   context_length?: number;
+  context_window?: number;
   /** The user's name for the model, else the vendor's. */
   display_name?: string;
   id: string;
+  /** `image` or `video` for a model called on its own route; a chat model has none. */
+  kind?: string;
   /** The model's name as magpie's own lists label it, `· provider` and all. */
   magpie_label?: string;
   max_input_tokens?: number;
@@ -45,7 +67,10 @@ interface MagpieModelCard {
   /** A model thinks when it has levels, or says so. */
   reasoning?: boolean;
   reasoning_levels?: string[];
+  supported_endpoint_types?: string[];
+  supported_parameters?: string[];
   supported_reasoning_levels?: { effort: string }[];
+  tool_call?: boolean;
 }
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3425';
@@ -65,8 +90,7 @@ export const magpieModelKey = (id: string): string => {
   // `auto-` before the model's name, which the model itself never does.
   if (key.startsWith('group/auto-')) key = key.slice('group/auto-'.length);
 
-  const slash = key.lastIndexOf('/');
-  if (slash >= 0) key = key.slice(slash + 1);
+  key = stripModelIdPrefix(key);
 
   key = key.replaceAll(/[\s_-]+/gu, '-');
 
@@ -81,18 +105,6 @@ export const magpieModelKey = (id: string): string => {
   return key;
 };
 
-/** model-bank's entries, by the key a magpie id for one reduces to. */
-const buildModelBankIndex = async () => {
-  const index = new Map<string, any>();
-
-  for (const model of await loadModels()) {
-    const key = magpieModelKey(model.id);
-    if (key && !index.has(key)) index.set(key, model);
-  }
-
-  return index;
-};
-
 /**
  * The model-bank entry for a magpie id, when one is the same model: matched on
  * the name after the provider prefix, so `workbuddy/kimi-k3-1` reaches
@@ -105,37 +117,84 @@ const buildModelBankIndex = async () => {
  */
 const findKnownModel = (
   id: string,
-  index: Map<string, any>,
-  byId: Map<string, any>,
-): any | undefined => byId.get(id) ?? index.get(magpieModelKey(id));
+  index: Map<string, BankModel>,
+  byId: Map<string, BankModel>,
+): BankModel | undefined => {
+  const exact = byId.get(id);
+  if (exact) return exact;
+  const alias = getMagpieCatalogAlias(id);
+  if (alias && byId.has(alias)) return byId.get(alias);
+
+  const key = magpieModelKey(id);
+  // Then the spellings an id differs from model-bank's by: a vendor's `MMDD`
+  // snapshot (`deepseek-v4.1-flash-1017`), a gateway's `-thinking` alias of the
+  // same model, and the `-preview` model-bank still carries.
+  const candidates = [
+    key,
+    key.replace(/[-@](?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])$/, ''),
+    key.replace(/-thinking$/, ''),
+    `${key}-preview`,
+  ];
+
+  for (const candidate of candidates) {
+    const known = index.get(candidate);
+    if (known) return known;
+  }
+};
 
 /**
  * magpie's own fields for one model, laid over model-bank's.
  *
  * Only what magpie can rewrite is written here, since a field this card hands
- * over wins over model-bank's. Tool calls are left to model-bank alone: magpie's
- * list says nothing of them, and `false` would turn a model's tool calls off.
+ * over wins over model-bank's. An omitted field keeps the catalog fallback.
  */
-const fromMagpie = (model: MagpieModelCard): Partial<ChatModelCard> => {
-  const contextWindow = model.context_length ?? model.max_input_tokens;
+const reasoningLevels = (model: MagpieModelCard) =>
+  model.reasoning_levels ?? model.supported_reasoning_levels?.map(({ effort }) => effort);
 
-  // magpie answers what a model takes; saying nothing is no answer, not `false`.
-  const takesImages = model.modalities?.input
-    ? model.modalities.input.includes('image')
-    : undefined;
+const fallbackReasoningParam = (model: MagpieModelCard) => {
+  const key = magpieModelKey(model.id);
+  const levels = reasoningLevels(model);
+  if (!levels?.length) return;
+
+  const candidates: (keyof typeof MODEL_REASONING_PARAM_LEVELS)[] = /^deepseek-v4(?:-|$)/.test(key)
+    ? ['deepseekV4GAReasoningEffort', 'deepseekV4ReasoningEffort']
+    : key.startsWith('gemini-')
+      ? ['thinkingLevel5', 'thinkingLevel', 'thinkingLevel3', 'thinkingLevel4', 'thinkingLevel2']
+      : /^gpt-6(?:-|$)/.test(key)
+        ? ['gpt6ReasoningEffort']
+        : [];
+
+  // Only expose a preset if the gateway supports every option it would offer.
+  return candidates.find((param) =>
+    MODEL_REASONING_PARAM_LEVELS[param].every((level) => levels.includes(level)),
+  );
+};
+
+const fromMagpie = (model: MagpieModelCard): Partial<ChatModelCard> => {
+  const contextWindow = model.context_length ?? model.context_window ?? model.max_input_tokens;
+
+  // Omitted metadata leaves model-bank's fallback intact; explicit false wins.
+  const { input, output } = model.modalities ?? {};
+  const functionCall = model.tool_call ?? model.supported_parameters?.includes('tools');
 
   // A model thinks when magpie says so, or when it kept reasoning levels for it.
   // Its `false` is the user switching reasoning off, which must survive rather
   // than fall back to model-bank's answer.
-  const levels = model.reasoning_levels ?? model.supported_reasoning_levels?.map((l) => l.effort);
+  const levels = reasoningLevels(model);
   const thinks =
-    model.reasoning === undefined ? (levels?.length ? true : undefined) : model.reasoning;
+    model.reasoning ?? (levels?.length ? true : model.supported_parameters?.includes('reasoning'));
 
   return {
     displayName: plainName(model),
+    ...(functionCall === undefined ? {} : { functionCall }),
     ...(contextWindow ? { contextWindowTokens: contextWindow } : {}),
     ...(model.max_output_tokens ? { maxOutput: model.max_output_tokens } : {}),
-    ...(takesImages === undefined ? {} : { vision: takesImages }),
+    ...(input && {
+      audio: input.includes('audio'),
+      video: input.includes('video'),
+      vision: input.includes('image'),
+    }),
+    ...(output && { imageOutput: output.includes('image') }),
     ...(thinks === undefined ? {} : { reasoning: thinks }),
   };
 };
@@ -180,14 +239,40 @@ const plainName = (model: MagpieModelCard): string | undefined => {
  * way of implementing it.
  */
 const knownSettings = (
-  known: any,
+  model: MagpieModelCard,
+  known: BankModel | undefined,
   thinks: boolean | undefined,
 ): Pick<ChatModelCard, 'settings'> => {
-  const extendParams: ModelSettings['extendParams'] = known?.settings?.extendParams;
+  const fallback = fallbackReasoningParam(model);
+  const levels = reasoningLevels(model);
+  // The bank describes the vendor API. Do not offer a preset that sends levels this route rejects.
+  const restrictLevels = !!levels?.length;
+  const extendParams = known?.settings?.extendParams?.filter((param) => {
+    if (param === 'urlContext' && model.supported_parameters) {
+      return model.supported_parameters.includes('url_context');
+    }
+    if (
+      !restrictLevels ||
+      !Object.hasOwn(MODEL_REASONING_PARAM_LEVELS, param) ||
+      param === 'reasoningMode'
+    ) {
+      return true;
+    }
+    return MODEL_REASONING_PARAM_LEVELS[param as keyof typeof MODEL_REASONING_PARAM_LEVELS].every(
+      (level) => levels.includes(level),
+    );
+  });
+  const resolvedParams = extendParams?.some((param) =>
+    Object.hasOwn(MODEL_REASONING_PARAM_LEVELS, param),
+  )
+    ? extendParams
+    : [...(extendParams ?? []), ...(fallback ? [fallback] : [])];
   const disabledParams: ModelSettings['disabledParams'] = known?.settings?.disabledParams;
 
   const usable =
-    thinks === false ? extendParams?.filter((param) => !REASONING_PARAMS.has(param)) : extendParams;
+    thinks === false
+      ? resolvedParams.filter((param) => !REASONING_PARAMS.has(param))
+      : resolvedParams;
 
   if (!usable?.length && !disabledParams) return {};
 
@@ -206,59 +291,145 @@ const knownSettings = (
  * providers the user turns on there, so nothing is shipped in the card and
  * nothing is kept for a gateway that isn't running. model-bank fills what
  * magpie leaves unsaid, so a model magpie lists without one still takes tool
- * calls as its vendor's entry says.
+ * calls as its vendor's entry says. Video models are not imported.
  */
 const fetchMagpieModels = async (client: OpenAI): Promise<ChatModelCard[]> => {
-  const response = await client.models.list();
-  const rows = (response.data as unknown as MagpieModelCard[]).filter((row) => !!row?.id);
+  // Refresh holds the catalog lock while the gateway responds; bound the HTTP request.
+  const response = await client.models.list({
+    maxRetries: 0,
+    query: { kind: 'all' },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const rows = response.data as unknown as MagpieModelCard[];
+  if (
+    !Array.isArray(rows) ||
+    rows.some(
+      (row) =>
+        typeof row?.id !== 'string' ||
+        !row.id.trim() ||
+        (row.kind != null && typeof row.kind !== 'string'),
+    )
+  ) {
+    throw new Error('Invalid Magpie model list');
+  }
 
-  const models = await loadModels();
-  const index = await buildModelBankIndex();
-  const byId = new Map(models.map((model) => [model.id, model]));
+  const bank = await loadModels();
+  const chatIndex = new Map<string, BankModel>();
+  const imageParams = new Map<string, ChatModelCard['parameters']>();
+  for (const model of bank) {
+    const key = magpieModelKey(model.id);
+    if (model.type === 'image') {
+      if (!imageParams.has(key) && model.parameters)
+        imageParams.set(key, model.parameters as ChatModelCard['parameters']);
+    } else if (model.type === 'chat' && !chatIndex.has(key)) {
+      chatIndex.set(key, model);
+    }
+  }
+  const byId = new Map(
+    bank.filter(({ type }) => type === 'chat').map((model) => [model.id, model]),
+  );
+  const resolveImageParameters = (id: string) => {
+    const alias = getMagpieCatalogAlias(id);
+    const key = magpieModelKey(id);
+    return (
+      imageParams.get(key) ??
+      imageParams.get(`${key}:image`) ??
+      (alias ? imageParams.get(magpieModelKey(alias)) : undefined)
+    );
+  };
+  const images = rows.filter(({ id, kind, supported_endpoint_types }) => {
+    if (kind && kind !== 'image') return false;
+    // The current image picker cannot require a reference image for edit-only models.
+    if (supported_endpoint_types?.length) {
+      return supported_endpoint_types.includes('image-generation');
+    }
+    if (kind === 'image') return true;
+    const key = magpieModelKey(id);
+    return !!resolveImageParameters(id) && !chatIndex.has(key);
+  });
+  const imageIds = new Set(images.map(({ id }) => id));
 
-  const prepared = rows.map((row) => {
-    const known = findKnownModel(row.id, index, byId);
-    const card = fromMagpie(row);
+  // One persisted card per ID. The native image route wins if Magpie lists it twice.
+  const chats = rows
+    .filter(({ id, kind }) => (!kind || kind === 'chat') && !imageIds.has(id))
+    .map((row) => {
+      const known = findKnownModel(row.id, chatIndex, byId);
+      const card = fromMagpie(row);
+      return {
+        audio: known?.abilities?.audio,
+        description: known?.description,
+        functionCall: known?.abilities?.functionCall,
+        ...card,
+        ...knownSettings(row, known, card.reasoning),
+        id: row.id,
+        type: row.kind === 'chat' ? ('chat' as const) : undefined,
+      };
+    });
 
+  const imageCards = images.map((row): ChatModelCard => {
+    const { imageUrl, imageUrls, ...parameters } =
+      resolveImageParameters(row.id) ?? CHAT_MODEL_IMAGE_GENERATION_PARAMS;
+    const canEdit = row.supported_endpoint_types?.includes('image-edit');
     return {
+      displayName: plainName(row) ?? row.id,
       id: row.id,
-      ...card,
-      // What magpie never says anything about, and only model-bank knows.
-      ...(known?.abilities?.functionCall === undefined
-        ? {}
-        : { functionCall: known.abilities.functionCall }),
-      // `card.reasoning` is magpie's own answer, so a model it reports as not
-      // thinking offers no strength to choose.
-      ...knownSettings(known, card.reasoning),
+      parameters: {
+        ...parameters,
+        ...(canEdit && (imageUrl ? { imageUrl } : { imageUrls: imageUrls ?? { default: [] } })),
+      },
+      type: 'image',
     };
   });
 
-  // magpie lists a model by its bare id too when the user asks for it, next to
-  // its `provider/model` row. The bare row names the same model, so the
-  // prefixed one is kept and the alias dropped. Two providers serving one model
-  // stay apart: their ids both carry a prefix.
-  const byName = new Set<string>();
-  for (const card of prepared) {
-    if (card.id.includes('/')) byName.add(card.id.slice(card.id.lastIndexOf('/') + 1));
-  }
-
+  // Drop a bare alias only if the list already contains its prefixed equivalent.
+  const cards = [...chats, ...imageCards];
+  const prefixedNames = new Set(
+    cards
+      .filter(({ id }) => id.includes('/'))
+      .map(({ id, type }) => `${type ?? 'chat'}/${stripModelIdPrefix(id)}`),
+  );
   const seen = new Set<string>();
-  const unique = prepared.filter((card) => {
-    if (seen.has(card.id)) return false;
-
-    // A bare id, when a prefixed row already names that model.
-    if (!card.id.includes('/') && byName.has(card.id)) return false;
-
-    seen.add(card.id);
+  const unique = cards.filter(({ id, type }) => {
+    if (seen.has(id) || (!id.includes('/') && prefixedNames.has(`${type ?? 'chat'}/${id}`)))
+      return false;
+    seen.add(id);
     return true;
   });
 
-  return processMultiProviderModelList(unique, ModelProvider.Magpie);
+  const routedChats = new Map(
+    unique.filter(({ type }) => type !== 'image').map((card) => [card.id, card]),
+  );
+  const chatCards = await processMultiProviderModelList(
+    [...routedChats.values()],
+    ModelProvider.Magpie,
+  );
+  return [
+    ...chatCards
+      .filter(({ type }) => type === 'chat')
+      .map((card) => {
+        const routed = routedChats.get(card.id);
+        return { ...card, audio: routed?.audio, settings: routed?.settings };
+      }),
+    ...unique.filter(({ type }) => type === 'image'),
+  ];
 };
+
+const mapMagpieThinkingLevel = ({ thinkingLevel, ...payload }: ChatStreamPayload) => ({
+  ...payload,
+  reasoning_effort: payload.reasoning_effort ?? thinkingLevel,
+});
 
 export const params = {
   apiKey: 'placeholder-to-avoid-error',
   baseURL: `${DEFAULT_BASE_URL}/v1`,
+  chatCompletion: {
+    handlePayload: (payload) =>
+      ({
+        ...mapMagpieThinkingLevel(payload),
+        stream: payload.stream ?? true,
+      }) as OpenAI.ChatCompletionCreateParamsStreaming,
+    supportsAudioInput: true,
+  },
   customClient: {
     // The gateway names the caller by its key (`magpie-<app>`) or else by its
     // User-Agent. The OpenAI SDK builds one from its class name, which a
@@ -279,6 +450,7 @@ export const params = {
   },
   models: async ({ client }: { client: OpenAI }) => fetchMagpieModels(client),
   provider: ModelProvider.Magpie,
+  responses: { handlePayload: mapMagpieThinkingLevel },
 } satisfies OpenAICompatibleFactoryOptions;
 
 export const LobeMagpieAI = createOpenAICompatibleRuntime(params);

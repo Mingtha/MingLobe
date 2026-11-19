@@ -28,6 +28,7 @@ import type {
   GenerateObjectPayload,
   HandleCreateVideoWebhookPayload,
   HandleCreateVideoWebhookResult,
+  ModelListOptions,
   ModelRequestOptions,
   MusicPollingRoute,
   PollMusicStatusOptions,
@@ -107,7 +108,7 @@ export interface LobeRuntimeAI {
     route?: VideoPollingRoute,
   ) => Promise<PollVideoStatusResult>;
 
-  models?: () => Promise<any>;
+  models?: (options?: ModelListOptions) => Promise<any>;
 
   /**
    * Composite runtimes set this when they resolve completion mode inside their selected route.

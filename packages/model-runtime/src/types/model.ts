@@ -42,3 +42,8 @@ export interface DeleteModelParams {
 export interface ModelRequestOptions {
   signal?: AbortSignal;
 }
+
+export interface ModelListOptions extends ModelRequestOptions {
+  /** A result used for pruning cannot silently omit failed pages or categories. */
+  requireComplete?: boolean;
+}

@@ -5,6 +5,9 @@ import { AiInfraRepos } from '@/database/repositories/aiInfra';
 
 import { aiModelRouter } from '../aiModel';
 
+const mockInitRuntime = vi.hoisted(() => vi.fn());
+vi.mock('@/server/modules/ModelRuntime', () => ({ initModelRuntimeFromDB: mockInitRuntime }));
+
 const mockGetHiddenBuiltinModelsForUser = vi.hoisted(() => vi.fn());
 
 vi.mock('@/business/server/aiProvider', () => ({
@@ -249,25 +252,54 @@ describe('aiModelRouter', () => {
     expect(mockBatchToggle).toHaveBeenCalledWith('provider-1', ['model-1', 'model-2'], true);
   });
 
-  it('should batch update ai models', async () => {
-    const mockBatchUpdate = vi.fn().mockResolvedValue([]);
+  it('keeps explicit CLI batch updates additive', async () => {
+    const batchUpdateAiModels = vi.fn().mockResolvedValue([]);
     vi.mocked(AiModelModel).mockImplementation(function () {
-      return {
-        batchUpdateAiModels: mockBatchUpdate,
-      } as any;
+      return { batchUpdateAiModels } as any;
     });
+    const models = [{ id: 'manual-model' }];
+    await aiModelRouter.createCaller(mockCtx).batchUpdateAiModels({ id: 'custom-gateway', models });
+    expect(batchUpdateAiModels).toHaveBeenCalledWith('custom-gateway', models);
+  });
 
+  it('allows only the provider-config admin to fetch and sync any provider on the server', async () => {
+    const syncRemoteModels = vi.fn(async (_provider: string, fetch: () => Promise<unknown>) => {
+      expect(await fetch()).toMatchObject([
+        { id: 'remote-image', settings: undefined, type: 'image' },
+      ]);
+      return { duplicateIds: [], removedCount: 0 };
+    });
+    vi.mocked(AiModelModel).mockImplementation(function () {
+      return { syncRemoteModels } as any;
+    });
     const caller = aiModelRouter.createCaller(mockCtx);
+    const providerId = 'custom-gateway';
+    const model = { id: 'remote-image', type: 'image' };
+    const models = vi.fn().mockResolvedValue([model]);
+    mockInitRuntime.mockResolvedValue({ models });
 
-    await caller.batchUpdateAiModels({
-      id: 'provider-1',
-      models: [{ id: 'model-1' }, { id: 'model-2' }],
+    mockIsProviderConfigAdmin.mockResolvedValueOnce(false);
+    await expect(caller.syncProviderModels({ providerId })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
     });
+    expect(mockInitRuntime).not.toHaveBeenCalled();
+    expect(syncRemoteModels).not.toHaveBeenCalled();
 
-    expect(mockBatchUpdate).toHaveBeenCalledWith('provider-1', [
-      { id: 'model-1' },
-      { id: 'model-2' },
-    ]);
+    await expect(caller.syncProviderModels({ providerId })).resolves.toEqual({
+      duplicateIds: [],
+      removedCount: 0,
+    });
+    expect(models).toHaveBeenCalledWith({ requireComplete: true, signal: expect.any(AbortSignal) });
+    expect(mockInitRuntime.mock.calls[0].slice(1)).toEqual([mockCtx.userId, providerId, undefined]);
+    expect(syncRemoteModels).toHaveBeenCalledWith(providerId, expect.any(Function));
+    models.mockResolvedValueOnce({ error: 'invalid catalog' });
+    await expect(caller.syncProviderModels({ providerId })).rejects.toMatchObject({
+      code: 'BAD_GATEWAY',
+    });
+    syncRemoteModels.mockResolvedValueOnce(false);
+    await expect(caller.syncProviderModels({ providerId })).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
   });
 
   it('should clear models by provider', async () => {

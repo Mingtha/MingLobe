@@ -14,6 +14,7 @@ import type {
   HandleCreateVideoWebhookPayload,
   HandleCreateVideoWebhookResult,
   ILobeAgentRuntimeErrorType,
+  ModelListOptions,
 } from '../../types';
 import type {
   CreateImageOptions,
@@ -161,7 +162,11 @@ export interface CreateRouterRuntimeOptions<T extends Record<string, any> = any>
    */
   isImageOutputModel?: (model: string) => boolean | Promise<boolean>;
   models?:
-    | ((params: { client: OpenAI; options?: ConstructorOptions<T> }) => Promise<ChatModelCard[]>)
+    | ((params: {
+        client: OpenAI;
+        listOptions?: ModelListOptions;
+        options?: ConstructorOptions<T>;
+      }) => Promise<ChatModelCard[]>)
     | {
         transformModel?: (model: OpenAI.Model) => ChatModelCard;
       };

@@ -3,8 +3,9 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import debug from 'debug';
 import type { AiModelType } from 'model-bank';
-import { LOBE_DEFAULT_MODEL_LIST } from 'model-bank';
+import { LOBE_DEFAULT_MODEL_LIST, ModelProvider } from 'model-bank';
 
+import type { ModelListOptions } from '../../types';
 import { getModelPropertyWithFallback } from '../../utils/getFallbackModelProperty';
 import { postProcessModelList } from '../../utils/postProcessModelList';
 import type { OpenAICompatibleRuntimeContext } from './context';
@@ -26,6 +27,7 @@ export const CHAT_MODELS_BLOCK_LIST = [
 export const listOpenAICompatibleModels = async (
   runtime: OpenAICompatibleRuntimeContext,
   factory: OpenAICompatibleFactoryOptions,
+  listOptions?: ModelListOptions,
 ) => {
   const { models } = factory;
   const log = debug(`${runtime.logPrefix}:models`);
@@ -34,10 +36,16 @@ export const listOpenAICompatibleModels = async (
   let resultModels: ChatModelCard[];
   if (typeof models === 'function') {
     log('using custom models function');
-    resultModels = await models({ client: runtime.client, options: runtime._options });
+    resultModels = await models({
+      client: runtime.client,
+      ...(listOptions && { listOptions }),
+      options: runtime._options,
+    });
   } else {
     log('fetching models from client API');
-    const list = await runtime.client.models.list();
+    const list = await (listOptions?.signal
+      ? runtime.client.models.list({ signal: listOptions.signal })
+      : runtime.client.models.list());
     resultModels = list.data
       .filter((model) => {
         return CHAT_MODELS_BLOCK_LIST.every((keyword) => !model.id.toLowerCase().includes(keyword));
@@ -83,6 +91,9 @@ export const listOpenAICompatibleModels = async (
   }
 
   log('fetched %d models', resultModels.length);
+
+  // Magpie exposes native image cards with their real IDs; do not add chat-backed aliases.
+  if (factory.provider === ModelProvider.Magpie) return resultModels;
 
   return await postProcessModelList(resultModels, (modelId) =>
     getModelPropertyWithFallback<AiModelType>(modelId, 'type'),

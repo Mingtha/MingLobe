@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
-import { aiModels, users } from '../../schemas';
+import { aiModels, aiProviders, users } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 import { AiModelModel } from '../aiModel';
 
@@ -35,6 +35,73 @@ describe('AiModelModel coverage edges', () => {
 
   afterEach(async () => {
     await cleanup();
+  });
+
+  it('does not fetch a deleted custom provider or recreate its catalog', async () => {
+    let fetched = false;
+    const result = await model.syncRemoteModels('deleted-provider', async () => {
+      fetched = true;
+      return [{ id: 'missing', type: 'chat' }];
+    });
+    expect(result).toBeUndefined();
+    expect(fetched).toBe(false);
+  });
+
+  it('reconciles a full remote snapshot without touching custom models or other providers', async () => {
+    await serverDB.insert(aiProviders).values({ id: providerId, source: 'custom', userId });
+    const remote = { providerId, source: 'remote', userId } as const;
+    await serverDB.insert(aiModels).values([
+      { ...remote, enabled: true, id: 'retained', type: 'chat' },
+      { ...remote, id: 'stale', type: 'chat' },
+      { ...remote, id: 'stale-image', type: 'image' },
+      { ...remote, config: { chatConfig: { enableReasoning: true } }, id: 'stale-with-preference' },
+      { ...remote, id: 'custom', source: 'custom', type: 'chat' },
+      { ...remote, id: 'other-provider', providerId: 'other' },
+    ]);
+
+    await model.syncRemoteModels(providerId, async () => [
+      { enabled: false, id: 'retained', parameters: { prompt: { default: '' } }, type: 'image' },
+      { id: 'custom', type: 'image' },
+      {
+        abilities: { functionCall: false },
+        id: 'new',
+        settings: { extendParams: ['thinkingLevel5'] },
+        type: 'chat',
+      },
+    ]);
+
+    expect(await findRow('retained')).toMatchObject({ enabled: true, type: 'image' });
+    expect(await findRow('new')).toMatchObject({
+      abilities: { functionCall: false },
+      source: 'remote',
+      type: 'chat',
+    });
+    expect(await findRow('stale')).toBeUndefined();
+    expect(await findRow('stale-image')).toBeUndefined();
+    expect(await findRow('custom')).toMatchObject({ source: 'custom', type: 'image' });
+    expect(await findRow('stale-with-preference')).toMatchObject({
+      config: { chatConfig: { enableReasoning: true } },
+      source: null,
+    });
+
+    await model.syncRemoteModels(providerId, async () => [{ id: 'retained', type: 'chat' }]);
+    expect(await findRow('retained')).toMatchObject({
+      enabled: true,
+      parameters: { prompt: { default: '' } },
+      type: 'image',
+    });
+    await expect(
+      model.syncRemoteModels(providerId, async () => {
+        throw new Error('offline');
+      }),
+    ).rejects.toThrow('offline');
+    expect(await findRow('retained')).toBeDefined();
+    await model.syncRemoteModels(providerId, async () => []);
+    expect(await findRow('retained')).toBeUndefined();
+    expect(await findRow('custom')).toMatchObject({ source: 'custom', type: 'image' });
+    expect(
+      await serverDB.query.aiModels.findFirst({ where: eq(aiModels.id, 'other-provider') }),
+    ).toMatchObject({ source: 'remote' });
   });
 
   describe('getAllModelReasoningConfigs', () => {

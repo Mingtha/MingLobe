@@ -22,6 +22,7 @@ import type {
   GenerateObjectOptions,
   GenerateObjectPayload,
   HandleCreateVideoWebhookPayload,
+  ModelListOptions,
   MusicPollingRoute,
   PollMusicStatusOptions,
   TextToSpeechOptions,
@@ -391,7 +392,7 @@ export const createRouterRuntime = ({
       throw lastError ?? new Error('empty provider options');
     }
 
-    async models() {
+    async models(options?: ModelListOptions) {
       const resolvedRouters = await resolveRouters(this.deps);
       const matchedRouter = this._options.baseURL
         ? (resolvedRouters.find((router) => router.baseURLPattern?.test(this._options.baseURL!)) ??
@@ -407,12 +408,13 @@ export const createRouterRuntime = ({
       ) {
         const modelList = await modelsOption({
           client: (runtime as any).client,
+          ...(options && { listOptions: options }),
           options: this._options,
         });
         return await postProcessModelList(modelList);
       }
 
-      return runtime.models?.();
+      return options ? runtime.models?.(options) : runtime.models?.();
     }
 
     /**

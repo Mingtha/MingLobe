@@ -13,6 +13,7 @@ import {
   AiModelSourceEnum,
   findModelCard,
   isAiModelVisible,
+  ModelProvider,
   normalizeAiModelType,
   resolveModelSearchDefaultSettings,
 } from 'model-bank';
@@ -447,6 +448,9 @@ export class AiInfraRepos {
     const card = findModelCard(await this.getModelBankModels(), row.id, row.providerId);
     if (!card) return row;
 
+    const isRemoteMagpie =
+      row.providerId === ModelProvider.Magpie && row.source === AiModelSourceEnum.Remote;
+
     return {
       ...card,
       ...row,
@@ -460,7 +464,12 @@ export class AiInfraRepos {
       displayName:
         row.displayName && row.displayName !== row.id ? row.displayName : card.displayName,
       pricing: row.pricing || card.pricing,
-      settings: isEmpty(row.settings) ? card.settings : merge(card.settings || {}, row.settings),
+      // Magpie already resolved the supported controls, including when no controls apply.
+      settings: isRemoteMagpie
+        ? row.settings
+        : isEmpty(row.settings)
+          ? card.settings
+          : merge(card.settings || {}, row.settings),
       type: row.type || card.type,
     };
   };

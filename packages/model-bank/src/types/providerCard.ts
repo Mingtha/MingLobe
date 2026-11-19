@@ -3,6 +3,8 @@ import type { AiModelSettings, AiModelType, Pricing } from './aiModel';
 import type { AiProviderSettings } from './aiProvider';
 
 export interface ChatModelCard {
+  /** Whether the model can consume audio input natively. */
+  audio?: boolean;
   /**
    * the context window (or input + output tokens limit)
    */

@@ -14,11 +14,6 @@ const Magpie: ModelProviderCard = {
   id: 'magpie',
   name: 'magpie',
   settings: {
-    // magpie is a desktop app on the user's own machine, so on the web the
-    // browser sends the requests and the switch starts on; it is offered either
-    // way, and a deployment reaching a magpie elsewhere sets `MAGPIE_PROXY_URL`
-    // to have the server send them instead.
-    defaultShowBrowserRequest: true,
     proxyUrl: {
       // A base URL the user gives is used as it stands, `/v1` included, so the
       // placeholder has to carry it.

@@ -203,8 +203,8 @@ describe('aiProviderSelectors', () => {
       ).toBe(false);
     });
 
-    it('should follow user settings for whitelisted providers', () => {
-      expect(aiProviderSelectors.isProviderFetchOnClient('ollama')(mockState)).toBe(true);
+    it('keeps local providers on the server', () => {
+      expect(aiProviderSelectors.isProviderFetchOnClient('ollama')(mockState)).toBe(false);
     });
 
     it('should return false if no endpoint and api key', () => {
@@ -220,7 +220,7 @@ describe('aiProviderSelectors', () => {
       expect(aiProviderSelectors.isProviderFetchOnClient('test')(state)).toBe(false);
     });
 
-    it('should return true if only baseURL exists', () => {
+    it('keeps a provider with only a base URL on the server', () => {
       const state = {
         ...mockState,
         aiProviderRuntimeConfig: {
@@ -230,11 +230,11 @@ describe('aiProviderSelectors', () => {
           },
         },
       };
-      expect(aiProviderSelectors.isProviderFetchOnClient('test')(state)).toBe(true);
+      expect(aiProviderSelectors.isProviderFetchOnClient('test')(state)).toBe(false);
     });
 
-    it('should follow user settings if both endpoint and api key exist', () => {
-      expect(aiProviderSelectors.isProviderFetchOnClient('provider1')(mockState)).toBe(true);
+    it('ignores the saved browser preference even when both endpoint and key exist', () => {
+      expect(aiProviderSelectors.isProviderFetchOnClient('provider1')(mockState)).toBe(false);
     });
   });
 

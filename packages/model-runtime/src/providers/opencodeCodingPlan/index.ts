@@ -466,19 +466,20 @@ export const params = {
     chatCompletion: () => process.env.DEBUG_OPENCODE_GO_CHAT_COMPLETION === '1',
   },
   id: ModelProvider.OpenCodeCodingPlan,
-  models: async ({ client }) => {
+  models: async ({ client, listOptions }) => {
     // Always pull models.dev for enrichment (cached after first call).
     const { modelsDev } = await fetchModelsDevData();
 
     try {
       // 1. Try API first (real-time available models), enriched with models.dev.
-      const modelsPage = await (client as any).models.list();
-      const apiModels = modelsPage.data || [];
+      const modelsPage = await client.models.list({ signal: listOptions?.signal });
+      const apiModels = modelsPage.data;
       return processMultiProviderModelList(
         apiModels.map((m: { id: string }) => enrichWithModelsDev(m.id, modelsDev[m.id])),
         'opencodecodingplan',
       );
-    } catch {
+    } catch (error) {
+      if (listOptions?.requireComplete) throw error;
       // 2. Fallback to models.dev (if we got data) enriched with itself.
       const modelIds = Object.keys(modelsDev);
       if (modelIds.length > 0) {

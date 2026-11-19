@@ -86,6 +86,24 @@ describe('AiInfraRepos gateway alias models', () => {
     });
   });
 
+  it('does not reintroduce catalog controls or abilities disabled by Magpie', async () => {
+    vi.spyOn(repo.aiModelModel, 'getAllModels').mockResolvedValue([
+      {
+        abilities: { functionCall: false, reasoning: false },
+        enabled: true,
+        id: 'codex/gpt-6.1-sol',
+        providerId: 'magpie',
+        settings: {},
+        source: 'remote',
+        type: 'chat',
+      },
+    ] as EnabledAiModel[]);
+
+    const [model] = await repo.getEnabledModels(false);
+    expect(model.settings).toEqual({});
+    expect(model.abilities).toEqual({ functionCall: false, reasoning: false });
+  });
+
   // With no builtin catalog, a fetched bank model is a plain DB row and must still get its card
   it('lets an unprefixed fetched model inherit its bank card', async () => {
     vi.spyOn(repo.aiModelModel, 'getAllModels').mockResolvedValue([

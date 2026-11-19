@@ -3,7 +3,7 @@ import { ModelProvider } from 'model-bank';
 import OpenAI from 'openai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { magpieModelKey, params } from './index';
+import { LobeMagpieAI, magpieModelKey, params } from './index';
 
 const model = (over: Record<string, any>) => ({ object: 'model', ...over });
 
@@ -73,6 +73,24 @@ describe('params', () => {
     });
 
     expect(client['_options']?.defaultHeaders?.['X-Trace']).toBe('kept');
+  });
+
+  it('converts Gemini thinkingLevel to the reasoning field Magpie expects', () => {
+    const payload = {
+      messages: [],
+      model: 'ai-studio/gemini-4-hydrogen',
+      thinkingLevel: 'xhigh' as const,
+    };
+    const chatPayload = params.chatCompletion.handlePayload(payload, {});
+    expect(chatPayload).toMatchObject({
+      model: payload.model,
+      reasoning_effort: 'xhigh',
+      stream: true,
+    });
+    expect(chatPayload).not.toHaveProperty('thinkingLevel');
+    expect(params.responses.handlePayload(payload, {})).toMatchObject({
+      reasoning_effort: 'xhigh',
+    });
   });
 
   it('turns debug output on only when asked', () => {
@@ -150,6 +168,88 @@ describe('the model list magpie serves', () => {
     expect(cards[0]).not.toHaveProperty('vision', true);
   });
 
+  it('uses explicit tool capability and input/output modalities without inferring unrelated capabilities', async () => {
+    const [card] = await load([
+      model({
+        context_window: 100_000,
+        id: 'custom/unlisted-model',
+        modalities: { input: ['text', 'image', 'video', 'audio'], output: ['text', 'image'] },
+        supported_parameters: ['tools'],
+        tool_call: false,
+      }),
+    ]);
+
+    expect(card).toMatchObject({
+      audio: true,
+      contextWindowTokens: 100_000,
+      functionCall: false,
+      imageOutput: true,
+      video: true,
+      vision: true,
+    });
+    expect(card.search).toBe(false);
+    expect(card.settings).toBeUndefined();
+  });
+
+  it('uses the supported Gemini thinking controls even when the model bank lacks the model', async () => {
+    const [card] = await load([
+      model({
+        id: 'custom/gemini-test-flash',
+        reasoning: true,
+        reasoning_levels: ['low', 'medium', 'high'],
+        supported_parameters: ['reasoning'],
+      }),
+    ]);
+    expect(card.settings?.extendParams).toEqual(['thinkingLevel3']);
+  });
+
+  it('inherits confirmed catalog metadata without changing gateway IDs', async () => {
+    const deepseek = 'fastai/deepseek-v4.1-flash-1017';
+    const gemini = 'ai-studio/gemini-4-hydrogen';
+    const banana = 'ai-studio/gemini-3-pro-image';
+    const cards = await load([
+      model({ id: deepseek }),
+      model({ id: gemini }),
+      model({
+        id: banana,
+        kind: 'image',
+        supported_endpoint_types: ['image-generation', 'image-edit'],
+      }),
+    ]);
+    expect(cards).toEqual([
+      expect.objectContaining({
+        id: deepseek,
+        description: expect.stringContaining('DeepSeek V4.1 Flash'),
+        settings: expect.objectContaining({ extendParams: ['deepseekV4GAReasoningEffort'] }),
+      }),
+      expect.objectContaining({
+        id: gemini,
+        contextWindowTokens: 1_048_576,
+        settings: expect.objectContaining({ extendParams: ['thinkingLevel5', 'urlContext'] }),
+      }),
+      expect.objectContaining({
+        id: banana,
+        parameters: expect.objectContaining({
+          resolution: expect.objectContaining({ enum: ['1K', '2K', '4K'] }),
+        }),
+        type: 'image',
+      }),
+    ]);
+  });
+
+  it('does not offer levels that Magpie explicitly omits for an otherwise known model', async () => {
+    const [card] = await load([
+      model({
+        id: 'fastai/deepseek-v4-pro',
+        reasoning: true,
+        reasoning_levels: ['low', 'high', 'max'],
+        supported_parameters: ['reasoning'],
+      }),
+    ]);
+    expect(card.reasoning).toBe(true);
+    expect(card.settings?.extendParams ?? []).not.toContain('deepseekV4GAReasoningEffort');
+  });
+
   it('takes the reasoning levels magpie kept', async () => {
     const cards = await load([
       model({ id: 'openai/gpt-5.6-sol', reasoning_levels: ['low', 'high'] }),
@@ -181,7 +281,7 @@ describe('the model list magpie serves', () => {
 
   it('takes the reasoning parameter from model-bank, which is what makes a level selectable', async () => {
     const cards = await load([
-      model({ id: 'moonshot/kimi-k3', reasoning_levels: ['low', 'medium', 'high'] }),
+      model({ id: 'moonshot/kimi-k3', reasoning_levels: ['low', 'high', 'max'] }),
     ]);
 
     // magpie's levels say the model thinks; the parameter that turns the
@@ -308,6 +408,164 @@ describe('the model list magpie serves', () => {
     ]);
 
     expect(cards.map((c) => c.id)).toEqual(['openai/gpt-5.6-sol', 'cpa/gpt-5.6-sol']);
+  });
+
+  it('uses the native image row for a shared ID and never generates a second image ID', async () => {
+    const id = 'ai-studio/gemini-nano-banana-2.1';
+    const flashId = 'ai-studio/gemini-3.1-flash-image';
+    const fetch = vi.fn(async (_url: RequestInfo | URL) =>
+      Response.json({
+        data: [
+          model({ id, modalities: { output: ['text', 'image'] } }),
+          model({
+            id,
+            kind: 'image',
+            supported_endpoint_types: ['image-generation', 'image-edit'],
+          }),
+          model({ id: flashId, kind: 'image', supported_endpoint_types: ['image-generation'] }),
+        ],
+        object: 'list',
+      }),
+    );
+    const runtime = new LobeMagpieAI({ fetch });
+    const cards = await runtime.models();
+
+    expect(String(fetch.mock.calls[0]?.[0])).toContain('/v1/models?kind=all');
+    expect(cards.map(({ id, type }) => ({ id, type }))).toEqual([
+      { id, type: 'image' },
+      { id: flashId, type: 'image' },
+    ]);
+    expect(cards[0].parameters).toHaveProperty('imageUrls');
+    expect(cards[1].parameters).not.toHaveProperty('imageUrls');
+  });
+
+  it('uses the native image parameter schema without adding a suffix to the request ID', async () => {
+    const id = 'ai-studio/gemini-nano-banana-2.1';
+    const [card] = await load([
+      model({ id, kind: 'image', supported_endpoint_types: ['image-generation', 'image-edit'] }),
+    ]);
+    expect(card).toMatchObject({
+      id,
+      parameters: {
+        aspectRatio: { default: 'auto' },
+        imageUrls: { default: [] },
+        resolution: { default: '1K' },
+      },
+      type: 'image',
+    });
+  });
+
+  it('sends the original image model ID to the native generation endpoint', async () => {
+    const id = 'ai-studio/gemini-nano-banana-2.1';
+    const fetch = vi.fn(async (_url: RequestInfo | URL, _options?: RequestInit) =>
+      Response.json({ data: [{ url: 'https://example.invalid/image.png' }] }),
+    );
+    const runtime = new LobeMagpieAI({ fetch });
+
+    await expect(runtime.createImage({ model: id, params: { prompt: 'A tree' } })).resolves.toEqual(
+      {
+        imageUrl: 'https://example.invalid/image.png',
+      },
+    );
+    expect(String(fetch.mock.calls[0]?.[0])).toContain('/v1/images/generations');
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({ model: id });
+  });
+
+  it('does not offer adaptive thinking for the gateway alias when Magpie disables reasoning', async () => {
+    const id = 'agy-cli/claude-opus-4-6-thinking';
+    const [card] = await load([model({ id, reasoning: false, supported_parameters: ['tools'] })]);
+
+    expect(card).toMatchObject({ functionCall: true, id, reasoning: false });
+    expect(card.settings?.extendParams ?? []).not.toContain('enableAdaptiveThinking');
+  });
+
+  it('uses explicit tool and reasoning capabilities even without a model-bank card', async () => {
+    const [deepseek, gemini, unknown] = await load([
+      model({
+        id: 'fastai/deepseek-v4.1-flash-1017',
+        reasoning_levels: ['none', 'low', 'high', 'max'],
+        supported_parameters: ['tools', 'reasoning'],
+      }),
+      model({
+        id: 'ai-studio/gemini-4-hydrogen',
+        reasoning_levels: ['low', 'medium', 'high', 'xhigh'],
+        supported_parameters: ['tools', 'reasoning'],
+      }),
+      model({ id: 'moonshot/kimi-k3', supported_parameters: [] }),
+    ]);
+
+    expect(deepseek).toMatchObject({
+      functionCall: true,
+      id: 'fastai/deepseek-v4.1-flash-1017',
+      settings: { extendParams: ['deepseekV4GAReasoningEffort'] },
+    });
+    expect(gemini.settings?.extendParams).toEqual(['thinkingLevel5']);
+    expect(unknown.functionCall).toBe(false);
+  });
+
+  it('matches a dated snapshot to an entry for the same version without changing its ID', async () => {
+    const id = 'fastai/deepseek-v4-pro-1017';
+    const [card] = await load([model({ id })]);
+
+    expect(card).toMatchObject({ id, settings: { extendParams: ['deepseekV4GAReasoningEffort'] } });
+  });
+
+  it('keeps same-name chat and image models when their request IDs differ', async () => {
+    const cards = await load([
+      model({ id: 'other/shared-name', kind: 'chat' }),
+      model({ id: 'shared-name', kind: 'image' }),
+      model({ id: 'codex/gpt-image-2' }),
+    ]);
+    expect(cards.map(({ id, type }) => ({ id, type }))).toEqual([
+      { id: 'other/shared-name', type: 'chat' },
+      { id: 'shared-name', type: 'image' },
+      { id: 'codex/gpt-image-2', type: 'image' },
+    ]);
+  });
+
+  it('rejects malformed model data instead of returning a partial catalog', async () => {
+    for (const invalid of [model({ id: '' }), model({ id: 'x', kind: {} })]) {
+      await expect(load([model({ id: 'valid' }), invalid])).rejects.toThrow(
+        'Invalid Magpie model list',
+      );
+    }
+  });
+
+  it('does not import embedding rows as chat or override first-row settings on duplicate IDs', async () => {
+    const id = 'ai-studio/gemini-4-hydrogen';
+    const cards = await load([
+      model({ id: 'openai/text-embedding-3-small' }),
+      model({ id, reasoning_levels: ['low', 'high'], supported_parameters: ['reasoning'] }),
+      model({
+        id,
+        reasoning_levels: ['low', 'medium', 'high', 'xhigh'],
+        supported_parameters: ['reasoning'],
+      }),
+    ]);
+    expect(cards.map((card) => card.id)).toEqual([id]);
+    expect(cards[0].settings?.extendParams).toEqual(['thinkingLevel2']);
+  });
+
+  it('does not offer thinking controls when the gateway lists only tools', async () => {
+    const [card] = await load([
+      model({ id: 'agy-cli/claude-sonnet-4-6', supported_parameters: ['tools'] }),
+    ]);
+    expect(card.reasoning).toBe(false);
+    expect(card.settings?.extendParams).toEqual(['disableContextCaching']);
+  });
+
+  it('ignores unsupported catalog kinds without dropping valid chat models', async () => {
+    const cards = await load([
+      model({ id: 'custom/embedding', kind: 'embedding' }),
+      model({ id: 'ai-studio/gemini-4-hydrogen' }),
+      model({ id: 'custom/edit-only', kind: 'image', supported_endpoint_types: ['image-edit'] }),
+    ]);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      audio: true,
+      id: 'ai-studio/gemini-4-hydrogen',
+      type: 'chat',
+    });
   });
 
   it('asks the gateway for its list once', async () => {

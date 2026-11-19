@@ -7,6 +7,7 @@ import type {
   ChatMethodOptions,
   ChatStreamPayload,
   CreateImagePayload,
+  ModelListOptions,
 } from '../../types';
 import { AgentRuntimeErrorType } from '../../types/error';
 import { AgentRuntimeError } from '../../utils/createError';
@@ -321,7 +322,7 @@ export class LobeReplicateAI implements LobeRuntimeAI {
    * Fetch image generation models from Replicate using search API
    * Uses targeted searches for relevant model categories instead of listing all public models
    */
-  async models() {
+  async models(options?: ModelListOptions) {
     try {
       const modelMap = new Map<string, { created?: number; displayName?: string; id: string }>();
 
@@ -337,9 +338,12 @@ export class LobeReplicateAI implements LobeRuntimeAI {
 
       // Search for each category and collect unique models
       for (const query of searchQueries) {
+        options?.signal?.throwIfAborted();
         try {
           // Use paginate for search results (limited results per query)
-          for await (const models of this.client.paginate(() => this.client.models.search(query))) {
+          for await (const models of this.client.paginate(() => this.client.models.search(query), {
+            signal: options?.signal,
+          })) {
             for (const model of models) {
               const modelId = `${model.owner}/${model.name}`;
               // Deduplicate by model ID
@@ -353,15 +357,17 @@ export class LobeReplicateAI implements LobeRuntimeAI {
                 });
               }
             }
-            // Limit to first page of results per query to avoid too many results
-            break;
+            // Discovery can be capped; a snapshot used for pruning cannot.
+            if (!options?.requireComplete) break;
           }
-        } catch {
+        } catch (error) {
+          if (options?.requireComplete) throw error;
           // Continue with other searches if one fails
           this.debugLog(`[Replicate models] Search failed for query: ${query}`);
         }
       }
 
+      options?.signal?.throwIfAborted();
       const modelList = [...modelMap.values()];
       this.debugLog(`[Replicate models] Found ${modelList.length} unique models`);
 

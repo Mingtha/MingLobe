@@ -16,6 +16,7 @@ import type { AiProviderSelectItem } from '../schemas';
 import { aiModels, aiProviders } from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { providerConfigOwnerWhere } from '../utils/providerConfigOwner';
+import { lockRemoteModelCatalog } from '../utils/remoteModelCatalog';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 
 type DecryptUserKeyVaults = (encryptKeyVaultsStr: string | null) => Promise<any>;
@@ -85,6 +86,7 @@ export class AiProviderModel {
 
   delete = async (id: string) => {
     return this.db.transaction(async (trx) => {
+      await lockRemoteModelCatalog(trx, id, this.workspaceId);
       // 1. delete all models of the provider
       await trx.delete(aiModels).where(and(eq(aiModels.providerId, id), this.modelScopeWhere()));
 

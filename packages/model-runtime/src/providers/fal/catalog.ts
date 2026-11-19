@@ -1,5 +1,6 @@
 import debug from 'debug';
 
+import type { ModelListOptions } from '../../types';
 import type { FalJsonSchema } from './schema';
 import {
   extractFalInputSchema,
@@ -128,7 +129,7 @@ const toModelListItem = (
 const listCategory = async (
   apiKey: string,
   [category, type]: FalGenerationCategory,
-  signal?: AbortSignal,
+  options?: ModelListOptions,
 ) => {
   const items: FalModelListItem[] = [];
   let cursor: string | undefined;
@@ -145,24 +146,35 @@ const listCategory = async (
           limit: String(FAL_CATALOG_PAGE_SIZE),
           status: 'active',
         },
-        signal,
+        options?.signal,
       );
     } catch (error) {
       // Keep the pages already listed; only a category whose first page fails is lost
-      if (page === 0) throw error;
+      if (page === 0 || options?.requireComplete) throw error;
       log('fal catalog %s stopped at page %d: %O', category, page, error);
       break;
     }
 
+    if (
+      options?.requireComplete &&
+      (!Array.isArray(result.models) || (result.has_more === undefined && result.next_cursor))
+    ) {
+      throw new Error('fal returned an invalid model catalog');
+    }
     for (const model of result.models ?? []) {
       const item = toModelListItem(model, type);
       if (item) items.push(item);
     }
 
-    if (!result.has_more || !result.next_cursor) break;
+    if (!result.has_more) return items;
+    if (!result.next_cursor || result.next_cursor === cursor) {
+      if (options?.requireComplete) throw new Error('fal catalog returned an invalid cursor');
+      break;
+    }
     cursor = result.next_cursor;
   }
 
+  if (options?.requireComplete) throw new Error('fal catalog exceeded its page limit');
   return items;
 };
 
@@ -172,12 +184,13 @@ const listCategory = async (
  * under fal's rate limit. A failing category is skipped so it does not hide the rest; only a
  * failure of every category (e.g. an invalid key) is thrown.
  */
-export const listFalGenerationModels = async (apiKey: string, signal?: AbortSignal) => {
+export const listFalGenerationModels = async (apiKey: string, options?: ModelListOptions) => {
   const results: PromiseSettledResult<FalModelListItem[]>[] = [];
   for (const category of FAL_GENERATION_CATEGORIES) {
     try {
-      results.push({ status: 'fulfilled', value: await listCategory(apiKey, category, signal) });
+      results.push({ status: 'fulfilled', value: await listCategory(apiKey, category, options) });
     } catch (reason) {
+      if (options?.requireComplete) throw reason;
       results.push({ reason, status: 'rejected' });
     }
   }

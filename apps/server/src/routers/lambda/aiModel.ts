@@ -1,9 +1,11 @@
+import type { ChatModelCard } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import { type AiProviderModelListItem } from 'model-bank';
 import {
   AiModelReasoningConfigSchema,
   AiModelTypeSchema,
   CreateAiModelSchema,
+  ModelProvider,
   ToggleAiModelEnableSchema,
   UpdateAiModelSchema,
 } from 'model-bank';
@@ -21,6 +23,7 @@ import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { getUserScopedAiProviderModelList } from '@/server/services/aiProviderAccess';
 import { resolveProviderConfigAccess } from '@/server/services/providerConfigAdmin';
 import { type ProviderConfig } from '@/types/user/settings';
@@ -47,6 +50,37 @@ const throwDuplicateAiModelError = (id: string): never => {
     code: 'CONFLICT',
     message: `Model "${id}" already exists`,
   });
+};
+
+const fetchProviderModelSnapshot = async (
+  runtime: Awaited<ReturnType<typeof initModelRuntimeFromDB>>,
+) => {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new TRPCError({ code: 'TIMEOUT', message: 'Provider model list request timed out' }));
+      controller.abort();
+    }, 30_000);
+  });
+  try {
+    const models: ChatModelCard[] | undefined = await Promise.race([
+      runtime.models({ requireComplete: true, signal: controller.signal }),
+      timeout,
+    ]);
+    if (
+      !Array.isArray(models) ||
+      models.some((model) => typeof model?.id !== 'string' || !model.id.trim())
+    ) {
+      throw new TRPCError({
+        code: 'BAD_GATEWAY',
+        message: 'Provider returned an invalid model list',
+      });
+    }
+    return models;
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 const aiModelProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
@@ -85,18 +119,13 @@ export const aiModelRouter = router({
     .mutation(async ({ input, ctx }) => {
       return ctx.aiModelModel.batchToggleAiModels(input.id, input.models, input.enabled);
     }),
+  // Explicit CLI batch updates are additive; only a server-fetched catalog can prune.
   batchUpdateAiModels: aiModelProcedure
     .use(withScopedPermission('ai_model:update'))
-    .input(
-      z.object({
-        id: z.string(),
-        // TODO: Complete validation schema
-        models: z.array(z.any()),
-      }),
-    )
-    .mutation(async ({ input, ctx }) => {
-      return ctx.aiModelModel.batchUpdateAiModels(input.id, input.models);
-    }),
+    .input(z.object({ id: z.string(), models: z.array(z.any()) }))
+    .mutation(async ({ input, ctx }) =>
+      ctx.aiModelModel.batchUpdateAiModels(input.id, input.models),
+    ),
 
   // Model deletes are workspace-wide at the model layer (no per-user narrowing),
   // so they are Admin-or-higher in workspace mode, matching the provider
@@ -114,6 +143,58 @@ export const aiModelRouter = router({
     .input(z.object({ providerId: z.string() }))
     .mutation(async ({ input, ctx }) => {
       return ctx.aiModelModel.clearRemoteModels(input.providerId);
+    }),
+
+  syncProviderModels: aiModelProcedure
+    .use(withScopedPermission('ai_model:update'))
+    .use(withScopedPermission('ai_model:delete'))
+    .use(requireWorkspaceRoleWhenScoped('admin'))
+    .input(z.object({ providerId: z.string().trim().min(1).max(64) }))
+    .mutation(async ({ ctx, input: { providerId: provider } }) => {
+      const runtime = await initModelRuntimeFromDB(
+        ctx.serverDB,
+        ctx.userId,
+        provider,
+        ctx.workspaceId ?? undefined,
+      );
+      const synced = await ctx.aiModelModel.syncRemoteModels(provider, async () => {
+        const models = await fetchProviderModelSnapshot(runtime);
+
+        return models.map((model) => ({
+          abilities: {
+            audio: model.audio,
+            files: model.files,
+            functionCall: model.functionCall,
+            imageOutput: model.imageOutput,
+            reasoning: model.reasoning,
+            search: model.search,
+            video: model.video,
+            vision: model.vision,
+          },
+          contextWindowTokens: model.contextWindowTokens,
+          description: model.description,
+          displayName: model.displayName,
+          enabled: model.enabled ?? false,
+          id: model.id,
+          parameters: model.parameters,
+          pricing: model.pricing,
+          releasedAt: model.releasedAt,
+          settings:
+            provider === ModelProvider.Magpie
+              ? { ...model.settings, extendParams: model.settings?.extendParams ?? [] }
+              : model.settings,
+          type: model.type ?? 'chat',
+        }));
+      });
+      if (synced === undefined) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Provider no longer exists' });
+      }
+      if (!synced)
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'A model refresh is already in progress for this provider',
+        });
+      return synced;
     }),
 
   createAiModel: aiModelProcedure

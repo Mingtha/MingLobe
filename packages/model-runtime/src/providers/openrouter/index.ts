@@ -2,6 +2,7 @@ import { ModelProvider } from 'model-bank';
 
 import type { OpenAICompatibleFactoryOptions } from '../../core/openaiCompatible';
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatible';
+import type { ModelListOptions } from '../../types';
 import { processMultiProviderModelList } from '../../utils/modelParse';
 import type { OpenRouterModelCard, OpenRouterReasoning } from './type';
 
@@ -10,11 +11,11 @@ const formatPrice = (price?: string) => {
   return Number((Number(price) * 1e6).toPrecision(5));
 };
 
-const fetchOpenRouterModels = async (outputModality?: string) => {
+const fetchOpenRouterModels = async (outputModality?: string, signal?: AbortSignal) => {
   const url = new URL('https://openrouter.ai/api/v1/models');
   if (outputModality) url.searchParams.set('output_modalities', outputModality);
 
-  const response = await fetch(url.toString());
+  const response = await (signal ? fetch(url.toString(), { signal }) : fetch(url.toString()));
   if (!response.ok) {
     throw new Error(`OpenRouter models API request failed with status ${response.status}`);
   }
@@ -109,12 +110,13 @@ export const params = {
     chatCompletion: () => process.env.DEBUG_OPENROUTER_CHAT_COMPLETION === '1',
   },
   decide: { path: '/systemone', protocol: 'systemone' },
-  models: async () => {
+  models: async ({ listOptions }: { listOptions?: ModelListOptions } = {}) => {
     // The default listing omits decision models; they are only returned when filtering by
     // their output modality, so fetch both lists.
     const [modelList, decisionModelList] = await Promise.all([
-      fetchOpenRouterModels(),
-      fetchOpenRouterModels('decisions').catch((error) => {
+      fetchOpenRouterModels(undefined, listOptions?.signal),
+      fetchOpenRouterModels('decisions', listOptions?.signal).catch((error) => {
+        if (listOptions?.requireComplete) throw error;
         console.error('[OpenRouter] Failed to fetch decision models:', error);
         return [];
       }),

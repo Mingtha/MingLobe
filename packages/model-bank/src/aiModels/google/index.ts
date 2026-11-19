@@ -6,6 +6,7 @@ import {
 } from '../../const/imageParameters';
 import type { ModelParamsSchema } from '../../standard-parameters';
 import type { AIChatModelCard, AIImageModelCard, AIVideoModelCard } from '../../types';
+import { gemini4HydrogenChatModel } from './gemini4Hydrogen';
 import { gemini25ChatModels } from './gemini25';
 import { googleTTSModels } from './tts';
 
@@ -15,6 +16,7 @@ import { googleTTSModels } from './tts';
  */
 
 const googleChatModels: AIChatModelCard[] = [
+  gemini4HydrogenChatModel,
   {
     abilities: {
       audio: true,

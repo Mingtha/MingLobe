@@ -32,6 +32,16 @@ describe('findModelCard', () => {
     expect(findModelCard(cards, 'anthropic/claude-opus-5-5')?.tag).toBe('openrouter');
   });
 
+  it('matches confirmed Magpie aliases without changing the request ID or other providers', () => {
+    const deepseek = { id: 'deepseek-flash', providerId: 'deepseek' };
+    const banana = { id: 'gemini-3-pro-image-preview:image', providerId: 'google' };
+    const id = 'fastai/deepseek-v4.1-flash-1017';
+    expect(findModelCard([deepseek, banana], id, 'magpie')).toBe(deepseek);
+    expect(findModelCard([deepseek], 'group/auto-deepseek-v4-1-flash', 'magpie')).toBe(deepseek);
+    expect(findModelCard([deepseek], id, 'openai')).toBeUndefined();
+    expect(findModelCard([banana], 'ai-studio/gemini-3-pro-image', 'magpie')).toBe(banana);
+  });
+
   it('returns undefined when neither id is known', () => {
     expect(findModelCard(cards, 'codex/unknown-model', 'openai')).toBeUndefined();
     expect(findModelCard(cards, 'unknown-model')).toBeUndefined();

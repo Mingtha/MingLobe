@@ -28,6 +28,7 @@ import type {
   CreateImageMethodOptions,
   GenerateObjectOptions,
   GenerateObjectPayload,
+  ModelListOptions,
 } from '../../types';
 import { AgentRuntimeErrorType } from '../../types/error';
 import type { CreateImagePayload, CreateImageResponse } from '../../types/image';
@@ -604,24 +605,33 @@ export class LobeGoogleAI implements LobeRuntimeAI {
     });
   }
 
-  async models(options?: { signal?: AbortSignal }) {
+  async models(options?: ModelListOptions) {
     try {
-      const url = `${this.baseURL}/v1beta/models`;
-      const response = await fetch(url, {
-        headers: {
-          'x-goog-api-key': this.apiKey!,
-        },
-        method: 'GET',
-        signal: options?.signal,
-      });
+      const modelList: GoogleModelCard[] = [];
+      const seenPageTokens = new Set<string>();
+      let pageToken: string | undefined;
+      do {
+        const url = new URL(`${this.baseURL}/v1beta/models`);
+        if (pageToken) url.searchParams.set('pageToken', pageToken);
+        const response = await fetch(url.toString(), {
+          headers: { 'x-goog-api-key': this.apiKey! },
+          method: 'GET',
+          signal: options?.signal,
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const json = await response.json();
-
-      const modelList: GoogleModelCard[] = json.models;
+        const page = (await response.json()) as {
+          models?: GoogleModelCard[];
+          nextPageToken?: string;
+        };
+        if (!Array.isArray(page.models)) throw new Error('Invalid Google model catalog');
+        modelList.push(...page.models);
+        pageToken = page.nextPageToken;
+        if (pageToken) {
+          if (seenPageTokens.has(pageToken)) throw new Error('Google repeated a model page token');
+          seenPageTokens.add(pageToken);
+        }
+      } while (pageToken);
 
       const processedModels = modelList.map((model) => {
         const id = model.name.replace(/^models\//, '');

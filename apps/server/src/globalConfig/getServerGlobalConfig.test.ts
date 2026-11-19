@@ -160,7 +160,8 @@ describe('getServerGlobalConfig', () => {
     const providerConfig = await loadCapturedProviderConfig(true);
 
     expect(providerConfig[ModelProvider.LobeHub].enabled).toBe(true);
-    expect(providerConfig[ModelProvider.Ollama].fetchOnClient).toBe(true);
+    expect(providerConfig[ModelProvider.Ollama].fetchOnClient).toBe(false);
+    expect(providerConfig[ModelProvider.Magpie].fetchOnClient).toBe(false);
 
     for (const provider of Object.values(ModelProvider)) {
       if (provider === ModelProvider.LobeHub) continue;
