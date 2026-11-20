@@ -940,6 +940,28 @@ describe('createOpenAICompatibleImage', () => {
       expect(result.modelUsage?.outputImageTokens).toBe(900);
     });
 
+    it('returns the Magpie image and token totals without an input breakdown', async () => {
+      vi.mocked(mockClient.images.generate).mockResolvedValue({
+        data: [{ b64_json: 'nanoBananaImage' }],
+        usage: { input_tokens: 25, output_tokens: 900, total_tokens: 925 },
+      } as OpenAI.Images.ImagesResponse);
+
+      const result = await createOpenAICompatibleImage(
+        mockClient,
+        { model: 'ai-studio/gemini-nano-banana-2.1', params: { prompt: 'A ceramic cup' } },
+        'magpie',
+      );
+
+      expect(result.imageUrl).toBe('data:image/png;base64,nanoBananaImage');
+      expect(result.modelUsage).toMatchObject({
+        totalInputTokens: 25,
+        totalOutputTokens: 900,
+        totalTokens: 925,
+      });
+      expect(result.modelUsage?.inputImageTokens).toBeUndefined();
+      expect(result.modelUsage?.inputTextTokens).toBeUndefined();
+    });
+
     it('should not include modelUsage when usage is missing in response', async () => {
       const mockImageResponse = {
         data: [

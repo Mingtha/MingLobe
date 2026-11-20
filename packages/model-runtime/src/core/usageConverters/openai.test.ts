@@ -686,6 +686,51 @@ describe('convertUsage', () => {
 });
 
 describe('convertOpenAIImageUsage', () => {
+  const splitPricing: Pricing = {
+    units: [
+      { name: 'textInput', rate: 5, strategy: 'fixed', unit: 'millionTokens' },
+      { name: 'imageInput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
+      { name: 'textOutput', rate: 8, strategy: 'fixed', unit: 'millionTokens' },
+      { name: 'imageOutput', rate: 40, strategy: 'fixed', unit: 'millionTokens' },
+    ],
+  };
+  const totals = { input_tokens: 100, output_tokens: 900, total_tokens: 1000 };
+
+  it.each([
+    { input: undefined, output: undefined },
+    { input: { image_tokens: 80 }, output: undefined },
+    { input: { image_tokens: 80, text_tokens: 20 }, output: undefined },
+    { input: { image_tokens: 80, text_tokens: 20 }, output: { text_tokens: 100 } },
+  ])('does not estimate a split price with incomplete details (%#)', ({ input, output }) => {
+    const result = convertOpenAIImageUsage(
+      { ...totals, input_tokens_details: input, output_tokens_details: output },
+      splitPricing,
+    );
+
+    expect(result).toMatchObject({
+      inputImageTokens: input?.image_tokens,
+      totalInputTokens: 100,
+      totalOutputTokens: 900,
+      totalTokens: 1000,
+    });
+    expect(result.outputImageTokens).toBeUndefined();
+    expect(result.outputTextTokens).toBe(output?.text_tokens);
+    expect(result).not.toHaveProperty('cost');
+  });
+
+  it('prices reported text and image output separately', () => {
+    const result = convertOpenAIImageUsage(
+      {
+        ...totals,
+        input_tokens_details: { image_tokens: 80, text_tokens: 20 },
+        output_tokens_details: { image_tokens: 800, text_tokens: 100 },
+      },
+      splitPricing,
+    );
+
+    expect(result).toMatchObject({ cost: 0.0337, outputImageTokens: 800, outputTextTokens: 100 });
+  });
+
   it('should convert gpt-image-1 usage data correctly', () => {
     // Arrange - Based on actual gpt-image-1 logs
     const gptImage1Usage: OpenAI.Images.ImagesResponse.Usage = {

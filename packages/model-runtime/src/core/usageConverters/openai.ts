@@ -208,20 +208,39 @@ export const convertOpenAIResponseUsage = (
   return withUsageCost(finalData as ModelUsage, payload?.pricing); // Cast because we've built it to match
 };
 
-export const convertOpenAIImageUsage = (
-  usage: OpenAI.Images.ImagesResponse.Usage,
-  pricing?: Pricing,
-): ModelUsage => {
+type OpenAIImageUsage = Omit<
+  OpenAI.Images.ImagesResponse.Usage,
+  'input_tokens_details' | 'output_tokens_details'
+> & {
+  // Compatible gateways may only report token totals.
+  input_tokens_details?: Partial<OpenAI.Images.ImagesResponse.Usage.InputTokensDetails>;
+  output_tokens_details?: Partial<OpenAI.Images.ImagesResponse.Usage.OutputTokensDetails>;
+};
+
+export const convertOpenAIImageUsage = (usage: OpenAIImageUsage, pricing?: Pricing): ModelUsage => {
+  const input = usage.input_tokens_details;
+  const output = usage.output_tokens_details;
+  const hasInputSplit =
+    typeof input?.image_tokens === 'number' && typeof input.text_tokens === 'number';
+  // Older GPT Image responses report only image output tokens, without a breakdown.
+  const imageOnlyOutput =
+    hasInputSplit && !output && !pricing?.units.some(({ name }) => name === 'textOutput');
   const data: ModelTokensUsage = {
-    inputImageTokens: usage.input_tokens_details.image_tokens,
-    inputTextTokens: usage.input_tokens_details.text_tokens,
-    outputImageTokens: usage.output_tokens,
+    inputImageTokens: input?.image_tokens,
+    inputTextTokens: input?.text_tokens,
+    outputImageTokens: output?.image_tokens ?? (imageOnlyOutput ? usage.output_tokens : undefined),
+    outputTextTokens: output?.text_tokens,
     totalInputTokens: usage.input_tokens,
     totalOutputTokens: usage.output_tokens,
     totalTokens: usage.total_tokens,
   };
 
-  return withUsageCost(data as ModelUsage, pricing);
+  // Do not let the generic price calculator fall back to totals for unknown modalities.
+  const hasOutputSplit =
+    typeof output?.image_tokens === 'number' && typeof output.text_tokens === 'number';
+  if (!hasInputSplit || (!imageOnlyOutput && !hasOutputSplit)) return data;
+
+  return withUsageCost(data, pricing);
 };
 
 /**
